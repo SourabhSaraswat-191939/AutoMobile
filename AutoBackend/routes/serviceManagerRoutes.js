@@ -14,9 +14,11 @@ import { validateServiceManager, ensureDataOwnership } from "../middleware/authM
 const router = express.Router();
 
 // Configure multer for file uploads
+// Use /tmp directory for Vercel serverless environment
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, "uploads/");
+    const uploadDir = process.env.NODE_ENV === 'production' ? '/tmp' : 'uploads/';
+    cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
     const timestamp = Date.now();
