@@ -1,6 +1,7 @@
 // API Configuration
-// Using deployed Vercel backend with MongoDB Atlas
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://auto-mobile-mblq.vercel.app'
+// Temporarily using local backend for testing
+// Switch back to 'https://auto-mobile-mblq.vercel.app' after configuring Vercel env vars
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
 
 // Helper function to build API URLs
 export const getApiUrl = (endpoint: string) => {
