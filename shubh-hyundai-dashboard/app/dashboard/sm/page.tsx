@@ -36,6 +36,8 @@ export default function SMDashboard() {
   ])
   const [selectedDate, setSelectedDate] = useState<string>("latest")
   const [showOverall, setShowOverall] = useState<boolean>(false)
+  const [hoveredAdvisor, setHoveredAdvisor] = useState<string | null>(null)
+  const [showWithTax, setShowWithTax] = useState<boolean>(false)
 
   const fetchDashboardData = async (dataType: DataType) => {
     if (!user?.email || !user?.city) return
@@ -53,6 +55,10 @@ export default function SMDashboard() {
       }
 
       const data = await response.json()
+      
+      console.log('SM Dashboard Data Received:', data)
+      console.log('Data Type:', dataType)
+      console.log('Summary:', data?.summary)
       
       // Ensure data has the correct structure
       if (data && typeof data === 'object') {
@@ -262,38 +268,23 @@ export default function SMDashboard() {
 
     return (
       <div className="space-y-6 animate-in fade-in duration-500">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-3xl font-bold text-gray-900 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              Average of All Data
-            </h2>
-            <p className="text-gray-600 mt-1">Comprehensive overview of all service operations</p>
-          </div>
-        </div>
-        
-        {/* Main 4 Metric Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Main 3 Metric Cards - Only Amounts */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {renderMetricCard(
-            "Total Revenue",
+            "RO Billing Amount",
             `₹${((ro_billing?.totalRevenue || 0) / 100000).toFixed(2)}L`,
             <DollarSign className="h-5 w-5" />,
-            "emerald"
-          )}
-          {renderMetricCard(
-            "RO Billing Records",
-            ro_billing?.count || 0,
-            <FileText className="h-5 w-5" />,
             "blue"
           )}
           {renderMetricCard(
             "Service Bookings",
-            service_booking?.count || 0,
+            service_booking?.totalBookings || 0,
             <Calendar className="h-5 w-5" />,
             "purple"
           )}
           {renderMetricCard(
-            "Warranty Claims",
-            warranty?.count || 0,
+            "Warranty Amount",
+            `₹${((warranty?.totalClaimValue || 0) / 100000).toFixed(2)}L`,
             <Shield className="h-5 w-5" />,
             "orange"
           )}
@@ -356,8 +347,8 @@ export default function SMDashboard() {
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between p-3 rounded-lg bg-gradient-to-r from-purple-50 to-white border border-purple-200">
                 <div>
-                  <p className="text-xs text-gray-600">Total Records</p>
-                  <p className="text-2xl font-bold text-purple-700">{operations?.count || 0}</p>
+                  <p className="text-xs text-gray-600">Total Operations</p>
+                  <p className="text-2xl font-bold text-purple-700">{operations?.totalOperations || 0}</p>
                 </div>
                 <div className="p-3 rounded-lg bg-purple-100">
                   <Activity className="h-6 w-6 text-purple-600" />
@@ -365,11 +356,13 @@ export default function SMDashboard() {
               </div>
               <div className="flex items-center justify-between p-3 rounded-lg bg-gradient-to-r from-indigo-50 to-white border border-indigo-200">
                 <div>
-                  <p className="text-xs text-gray-600">Total Count</p>
-                  <p className="text-2xl font-bold text-indigo-700">{operations?.totalCount || 0}</p>
+                  <p className="text-xs text-gray-600">Total Amount</p>
+                  <p className="text-xl font-bold text-indigo-700">
+                    ₹{((operations?.totalAmount || 0) / 100000).toFixed(1)}L
+                  </p>
                 </div>
                 <div className="p-3 rounded-lg bg-indigo-100">
-                  <BarChart3 className="h-6 w-6 text-indigo-600" />
+                  <DollarSign className="h-6 w-6 text-indigo-600" />
                 </div>
               </div>
             </CardContent>
@@ -389,7 +382,7 @@ export default function SMDashboard() {
               <div className="flex items-center justify-between p-3 rounded-lg bg-gradient-to-r from-orange-50 to-white border border-orange-200">
                 <div>
                   <p className="text-xs text-gray-600">Total Claims</p>
-                  <p className="text-2xl font-bold text-orange-700">{warranty?.count || 0}</p>
+                  <p className="text-2xl font-bold text-orange-700">{warranty?.totalClaims || 0}</p>
                 </div>
                 <div className="p-3 rounded-lg bg-orange-100">
                   <FileText className="h-6 w-6 text-orange-600" />
@@ -399,7 +392,7 @@ export default function SMDashboard() {
                 <div>
                   <p className="text-xs text-gray-600">Claim Amount</p>
                   <p className="text-xl font-bold text-red-700">
-                    ₹{((warranty?.totalClaims || 0) / 100000).toFixed(1)}L
+                    ₹{((warranty?.totalClaimValue || 0) / 100000).toFixed(1)}L
                   </p>
                 </div>
                 <div className="p-3 rounded-lg bg-red-100">
@@ -526,9 +519,35 @@ export default function SMDashboard() {
       }
       
       if (selectedDataType === "ro_billing") {
-        const totalRevenue = data.reduce((sum: number, row: any) => sum + (row.totalAmount || 0), 0)
-        const totalLabour = data.reduce((sum: number, row: any) => sum + (row.labourAmt || 0), 0)
-        const totalParts = data.reduce((sum: number, row: any) => sum + (row.partAmt || 0), 0)
+        let totalLabour = 0
+        let totalParts = 0
+        
+        // Debug: Log first record to check tax fields
+        if (data.length > 0) {
+          console.log("Sample RO Billing record - ALL FIELDS:", JSON.stringify(data[0], null, 2))
+          console.log("Has labourTax?", data[0].labourTax)
+          console.log("Has partTax?", data[0].partTax)
+        }
+        
+        data.forEach((row: any) => {
+          const labourAmt = row.labourAmt || 0
+          const partAmt = row.partAmt || 0
+          const labourTax = row.labourTax || 0
+          const partTax = row.partTax || 0
+          
+          if (showWithTax) {
+            totalLabour += labourAmt + labourTax
+            totalParts += partAmt + partTax
+          } else {
+            totalLabour += labourAmt
+            totalParts += partAmt
+          }
+        })
+        
+        console.log("Tax toggle state:", showWithTax)
+        console.log("Total Labour:", totalLabour, "Total Parts:", totalParts)
+        
+        const totalRevenue = totalLabour + totalParts
         return { totalRevenue, totalLabour, totalParts, count: data.length }
       } else if (selectedDataType === "operations") {
         const totalAmount = data.reduce((sum: number, row: any) => sum + (row.amount || 0), 0)
@@ -569,33 +588,36 @@ export default function SMDashboard() {
 
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">
-              {dataTypeLabels[selectedDataType as string] || selectedDataType}
-            </h2>
-            <p className="text-gray-500 mt-1">{dashboardData.count} records found</p>
-          </div>
-          {dashboardData.uploads && dashboardData.uploads.length > 0 && (
-            <div className="text-sm text-gray-600">
-              <p className="font-medium">Recent Uploads:</p>
-              {dashboardData.uploads.slice(0, 3).map((upload: any) => (
-                <p key={upload.id} className="text-xs">
-                  {upload.fileName} ({upload.totalRows} rows)
-                </p>
-              ))}
+        {selectedDataType === "ro_billing" && (
+          <div className="flex justify-end">
+            <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-lg border-2 border-gray-200 shadow-sm">
+              <span className="text-sm font-medium text-gray-700">
+                {showWithTax ? "With Tax" : "Without Tax"}
+              </span>
+              <button
+                onClick={() => setShowWithTax(!showWithTax)}
+                className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                  showWithTax ? 'bg-blue-600' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                    showWithTax ? 'translate-x-8' : 'translate-x-1'
+                  }`}
+                />
+              </button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Metrics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {selectedDataType === "ro_billing" && (
             <>
               {renderMetricCard("Total Records", metrics.count, <FileText className="h-5 w-5" />, "blue")}
-              {renderMetricCard("Total Revenue", `₹${((metrics.totalRevenue || 0) / 100000).toFixed(2)}L`, <DollarSign className="h-5 w-5" />, "emerald")}
-              {renderMetricCard("Labour Amount", `₹${((metrics.totalLabour || 0) / 100000).toFixed(2)}L`, <TrendingUp className="h-5 w-5" />, "green")}
-              {renderMetricCard("Parts Amount", `₹${((metrics.totalParts || 0) / 100000).toFixed(2)}L`, <BarChart3 className="h-5 w-5" />, "orange")}
+              {renderMetricCard("Total Labour Amount", `₹${((metrics.totalLabour || 0) / 100000).toFixed(2)}L`, <TrendingUp className="h-5 w-5" />, "green")}
+              {renderMetricCard("Total Parts Amount", `₹${((metrics.totalParts || 0) / 100000).toFixed(2)}L`, <BarChart3 className="h-5 w-5" />, "orange")}
+              {renderMetricCard("Total Revenue (Labour + Parts)", `₹${((metrics.totalRevenue || 0) / 100000).toFixed(2)}L`, <DollarSign className="h-5 w-5" />, "emerald")}
             </>
           )}
           {selectedDataType === "operations" && (
@@ -628,27 +650,40 @@ export default function SMDashboard() {
 
         {/* Service Advisor Performance Table by Date - For RO Billing */}
         {selectedDataType === "ro_billing" && (() => {
-          // Group data by date and service advisor
-          const dateGroups: Record<string, Record<string, { ros: number; labour: number; parts: number; total: number }>> = {}
+          // Group data by date and service advisor with work types
+          const dateGroups: Record<string, Record<string, { ros: number; labour: number; parts: number; total: number; workTypes: Record<string, number> }>> = {}
           
           dashboardData.data.forEach((record: any) => {
             const date = record.billDate || 'Unknown'
             const advisor = record.serviceAdvisor || 'Unknown'
-            const labour = record.labourAmt || 0
-            const parts = record.partAmt || 0
+            const labourAmt = record.labourAmt || 0
+            const partAmt = record.partAmt || 0
+            const labourTax = record.labourTax || 0
+            const partTax = record.partTax || 0
+            const workType = record.workType || 'Unknown'
+            
+            // Calculate amounts based on tax toggle
+            const labour = showWithTax ? labourAmt + labourTax : labourAmt
+            const parts = showWithTax ? partAmt + partTax : partAmt
             
             if (!dateGroups[date]) {
               dateGroups[date] = {}
             }
             
             if (!dateGroups[date][advisor]) {
-              dateGroups[date][advisor] = { ros: 0, labour: 0, parts: 0, total: 0 }
+              dateGroups[date][advisor] = { ros: 0, labour: 0, parts: 0, total: 0, workTypes: {} }
             }
             
             dateGroups[date][advisor].ros += 1
             dateGroups[date][advisor].labour += labour
             dateGroups[date][advisor].parts += parts
             dateGroups[date][advisor].total += labour + parts
+            
+            // Track work types
+            if (!dateGroups[date][advisor].workTypes[workType]) {
+              dateGroups[date][advisor].workTypes[workType] = 0
+            }
+            dateGroups[date][advisor].workTypes[workType] += 1
           })
           
           // Get all dates sorted
@@ -658,17 +693,25 @@ export default function SMDashboard() {
           const getDisplayData = () => {
             if (showOverall) {
               // Combine all advisors across all dates
-              const overallAdvisors: Record<string, { ros: number; labour: number; parts: number; total: number }> = {}
+              const overallAdvisors: Record<string, { ros: number; labour: number; parts: number; total: number; workTypes: Record<string, number> }> = {}
               
               Object.values(dateGroups).forEach(dateAdvisors => {
                 Object.entries(dateAdvisors).forEach(([advisor, data]) => {
                   if (!overallAdvisors[advisor]) {
-                    overallAdvisors[advisor] = { ros: 0, labour: 0, parts: 0, total: 0 }
+                    overallAdvisors[advisor] = { ros: 0, labour: 0, parts: 0, total: 0, workTypes: {} }
                   }
                   overallAdvisors[advisor].ros += data.ros
                   overallAdvisors[advisor].labour += data.labour
                   overallAdvisors[advisor].parts += data.parts
                   overallAdvisors[advisor].total += data.total
+                  
+                  // Merge work types
+                  Object.entries(data.workTypes).forEach(([wt, count]) => {
+                    if (!overallAdvisors[advisor].workTypes[wt]) {
+                      overallAdvisors[advisor].workTypes[wt] = 0
+                    }
+                    overallAdvisors[advisor].workTypes[wt] += count
+                  })
                 })
               })
               
@@ -779,7 +822,7 @@ export default function SMDashboard() {
                           <th className="text-right py-3 px-4 font-semibold text-emerald-700 text-sm">Labour Amt</th>
                           <th className="text-right py-3 px-4 font-semibold text-blue-700 text-sm">Parts Amt</th>
                           <th className="text-right py-3 px-4 font-semibold text-purple-700 text-sm">Total</th>
-                          <th className="text-right py-3 px-4 font-semibold text-orange-700 text-sm">Avg/RO</th>
+                          <th className="text-right py-3 px-4 font-semibold text-orange-700 text-sm">Avg Labour/RO</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -793,10 +836,33 @@ export default function SMDashboard() {
                                 <span className="font-medium text-gray-900">{advisor}</span>
                               </div>
                             </td>
-                            <td className="py-3 px-4 text-center">
-                              <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-bold text-sm">
+                            <td 
+                              className="py-3 px-4 text-center relative"
+                              onMouseEnter={() => setHoveredAdvisor(advisor)}
+                              onMouseLeave={() => setHoveredAdvisor(null)}
+                            >
+                              <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-bold text-sm cursor-help">
                                 {data.ros}
                               </span>
+                              {hoveredAdvisor === advisor && Object.keys(data.workTypes).length > 0 && (
+                                <div className="absolute z-50 left-1/2 transform -translate-x-1/2 top-full mt-2 bg-white border-2 border-blue-300 rounded-lg shadow-2xl p-4 min-w-[250px]">
+                                  <div className="font-bold text-gray-800 mb-3 text-sm border-b pb-2">Work Type Breakdown</div>
+                                  <div className="space-y-2">
+                                    {Object.entries(data.workTypes)
+                                      .sort((a, b) => b[1] - a[1])
+                                      .map(([workType, count]) => (
+                                        <div key={workType} className="flex items-center justify-between text-xs">
+                                          <span className="font-medium text-gray-700">{workType}</span>
+                                          <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded font-bold">{count}</span>
+                                        </div>
+                                      ))}
+                                  </div>
+                                  <div className="mt-3 pt-2 border-t border-gray-200 flex items-center justify-between text-xs font-bold">
+                                    <span className="text-gray-800">Total ROs</span>
+                                    <span className="bg-blue-600 text-white px-2 py-1 rounded">{data.ros}</span>
+                                  </div>
+                                </div>
+                              )}
                             </td>
                             <td className="py-3 px-4 text-right font-semibold text-emerald-600">
                               ₹{data.labour.toLocaleString()}
@@ -808,7 +874,7 @@ export default function SMDashboard() {
                               ₹{data.total.toLocaleString()}
                             </td>
                             <td className="py-3 px-4 text-right font-semibold text-orange-600">
-                              ₹{(data.total / data.ros).toFixed(0)}
+                              ₹{(data.labour / data.ros).toFixed(0)}
                             </td>
                           </tr>
                         ))}
@@ -823,11 +889,137 @@ export default function SMDashboard() {
                           <td className="py-3 px-4 text-right text-emerald-700">₹{totalLabour.toLocaleString()}</td>
                           <td className="py-3 px-4 text-right text-blue-700">₹{totalParts.toLocaleString()}</td>
                           <td className="py-3 px-4 text-right text-purple-800">₹{totalAmount.toLocaleString()}</td>
-                          <td className="py-3 px-4 text-right text-orange-700">₹{totalROs > 0 ? (totalAmount / totalROs).toFixed(0) : 0}</td>
+                          <td className="py-3 px-4 text-right text-orange-700">₹{totalROs > 0 ? (totalLabour / totalROs).toFixed(0) : 0}</td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+          )
+        })()}
+
+        {/* Bodyshop - Accidental Repair Analysis */}
+        {selectedDataType === "ro_billing" && (() => {
+          // Filter for Accidental Repair work type only
+          const accidentalRepairData = dashboardData.data.filter((record: any) => 
+            record.workType?.toLowerCase().includes('accidental repair')
+          )
+
+          if (accidentalRepairData.length === 0) {
+            return null // Don't show if no accidental repair data
+          }
+
+          // Group by advisor
+          const advisorStats: Record<string, { labour: number; parts: number; ros: number }> = {}
+          
+          accidentalRepairData.forEach((record: any) => {
+            const advisor = record.serviceAdvisor || 'Unknown'
+            const labourAmt = record.labourAmt || 0
+            const partAmt = record.partAmt || 0
+            const labourTax = record.labourTax || 0
+            const partTax = record.partTax || 0
+            
+            // Calculate amounts based on tax toggle (same as RO Billing table)
+            const labour = showWithTax ? labourAmt + labourTax : labourAmt
+            const parts = showWithTax ? partAmt + partTax : partAmt
+            
+            if (!advisorStats[advisor]) {
+              advisorStats[advisor] = { labour: 0, parts: 0, ros: 0 }
+            }
+            
+            advisorStats[advisor].labour += labour
+            advisorStats[advisor].parts += parts
+            advisorStats[advisor].ros += 1
+          })
+
+          // Calculate totals
+          let totalLabour = 0
+          let totalParts = 0
+          let totalROs = 0
+          
+          Object.values(advisorStats).forEach(stats => {
+            totalLabour += stats.labour
+            totalParts += stats.parts
+            totalROs += stats.ros
+          })
+
+          return (
+            <Card className="border-2 border-red-200 bg-gradient-to-br from-white to-red-50/30 shadow-lg">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-lg bg-red-100 p-2">
+                      <Car className="h-5 w-5 text-red-600" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-xl">Bodyshop - Accidental Repair</CardTitle>
+                      <CardDescription>Advisor-wise performance for accidental repairs</CardDescription>
+                    </div>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b-2 border-red-300 bg-gradient-to-r from-red-50 to-red-100">
+                        <th className="text-left py-3 px-4 font-bold text-gray-800">Service Advisor</th>
+                        <th className="text-center py-3 px-4 font-bold text-gray-800">ROs</th>
+                        <th className="text-right py-3 px-4 font-bold text-gray-800">Labour Amount</th>
+                        <th className="text-right py-3 px-4 font-bold text-gray-800">Part Amount</th>
+                        <th className="text-right py-3 px-4 font-bold text-gray-800">Total Amount</th>
+                        <th className="text-right py-3 px-4 font-bold text-gray-800">Per RO Labour</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(advisorStats)
+                        .sort((a, b) => (b[1].labour + b[1].parts) - (a[1].labour + a[1].parts))
+                        .map(([advisor, stats], idx) => {
+                          const total = stats.labour + stats.parts
+                          const perROLabour = stats.ros > 0 ? stats.labour / stats.ros : 0
+                          
+                          return (
+                            <tr key={idx} className="border-b border-gray-200 hover:bg-red-50 transition-colors">
+                              <td className="py-3 px-4 font-semibold text-gray-900">{advisor}</td>
+                              <td className="py-3 px-4 text-center">
+                                <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-600 text-white font-bold text-sm">
+                                  {stats.ros}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-right font-semibold text-emerald-600">
+                                ₹{stats.labour.toLocaleString()}
+                              </td>
+                              <td className="py-3 px-4 text-right font-semibold text-blue-600">
+                                ₹{stats.parts.toLocaleString()}
+                              </td>
+                              <td className="py-3 px-4 text-right font-bold text-purple-700">
+                                ₹{total.toLocaleString()}
+                              </td>
+                              <td className="py-3 px-4 text-right font-semibold text-orange-600">
+                                ₹{perROLabour.toFixed(0)}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      {/* Overall Total Row */}
+                      <tr className="bg-gradient-to-r from-red-100 to-red-50 border-t-2 border-red-300 font-bold">
+                        <td className="py-3 px-4 text-gray-900">Overall Total</td>
+                        <td className="py-3 px-4 text-center">
+                          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-700 text-white font-bold text-sm">
+                            {totalROs}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right text-emerald-700">₹{totalLabour.toLocaleString()}</td>
+                        <td className="py-3 px-4 text-right text-blue-700">₹{totalParts.toLocaleString()}</td>
+                        <td className="py-3 px-4 text-right text-purple-800">₹{(totalLabour + totalParts).toLocaleString()}</td>
+                        <td className="py-3 px-4 text-right text-orange-700">
+                          ₹{totalROs > 0 ? (totalLabour / totalROs).toFixed(0) : 0}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </CardContent>
             </Card>
@@ -897,11 +1089,46 @@ export default function SMDashboard() {
         
         {/* Warranty Claims Analysis */}
         {selectedDataType === "warranty" && (() => {
-          // Group by claim type
-          const claimTypes: Record<string, number> = {}
+          // Safety check for data
+          if (!dashboardData?.data || !Array.isArray(dashboardData.data) || dashboardData.data.length === 0) {
+            return (
+              <Card className="border-2 border-orange-200 bg-gradient-to-br from-white to-orange-50/30 shadow-lg">
+                <CardContent className="p-12 text-center">
+                  <Shield className="h-12 w-12 mx-auto mb-4 text-orange-400" />
+                  <p className="text-gray-600">No warranty data available</p>
+                </CardContent>
+              </Card>
+            )
+          }
+
+          // Group by claim type with labour and part amounts
+          const claimTypeStats: Record<string, { count: number; labour: number; part: number; total: number }> = {}
+          let overallLabour = 0
+          let overallPart = 0
+          let overallTotal = 0
+          let totalClaims = 0
+          
+          console.log('Warranty Data Sample:', dashboardData.data[0]) // Debug log
+          
           dashboardData.data.forEach((r: any) => {
             const type = r.claimType || 'Unknown'
-            claimTypes[type] = (claimTypes[type] || 0) + 1
+            const labour = parseFloat(r.labour || 0)
+            const part = parseFloat(r.part || 0)
+            const total = labour + part
+            
+            if (!claimTypeStats[type]) {
+              claimTypeStats[type] = { count: 0, labour: 0, part: 0, total: 0 }
+            }
+            
+            claimTypeStats[type].count += 1
+            claimTypeStats[type].labour += labour
+            claimTypeStats[type].part += part
+            claimTypeStats[type].total += total
+            
+            overallLabour += labour
+            overallPart += part
+            overallTotal += total
+            totalClaims += 1
           })
           
           return (
@@ -914,7 +1141,7 @@ export default function SMDashboard() {
                     </div>
                     <div>
                       <CardTitle className="text-xl">Warranty Claims Overview</CardTitle>
-                      <CardDescription>Top claim types analysis</CardDescription>
+                      <CardDescription>Claim types with labour and parts breakdown</CardDescription>
                     </div>
                   </div>
                   <Button
@@ -926,21 +1153,40 @@ export default function SMDashboard() {
                 </div>
               </CardHeader>
               <CardContent>
+                {/* Claim Type Breakdown */}
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Top Claim Types</h3>
-                  <div className="space-y-2">
-                    {Object.entries(claimTypes)
-                      .sort((a, b) => b[1] - a[1])
-                      .slice(0, 8)
-                      .map(([type, count], idx) => (
-                      <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-white border border-gray-200 hover:border-orange-300 hover:shadow-md transition-all">
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold text-sm shadow-lg">
-                            {idx + 1}
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Claim Type Breakdown</h3>
+                  <div className="space-y-3">
+                    {Object.entries(claimTypeStats)
+                      .sort((a, b) => b[1].total - a[1].total)
+                      .map(([type, stats], idx) => (
+                      <div key={idx} className="p-4 rounded-lg bg-white border-2 border-gray-200 hover:border-orange-300 hover:shadow-lg transition-all">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 text-white font-bold text-sm shadow-lg">
+                              {idx + 1}
+                            </div>
+                            <div>
+                              <span className="text-base font-bold text-gray-900">{type}</span>
+                              <p className="text-xs text-gray-500">{stats.count} claims</p>
+                            </div>
                           </div>
-                          <span className="text-sm font-medium text-gray-900">{type}</span>
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-orange-600">₹{(stats.total / 100000).toFixed(2)}L</p>
+                            <p className="text-xs text-gray-500">Total</p>
+                          </div>
                         </div>
-                        <span className="text-sm font-bold text-orange-600">{count} claims</span>
+                        
+                        <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-gray-200">
+                          <div className="text-center p-3 rounded bg-blue-50">
+                            <p className="text-xs text-gray-600 mb-1">Labour Amount</p>
+                            <p className="text-lg font-bold text-blue-600">₹{(stats.labour / 100000).toFixed(2)}L</p>
+                          </div>
+                          <div className="text-center p-3 rounded bg-green-50">
+                            <p className="text-xs text-gray-600 mb-1">Part Amount</p>
+                            <p className="text-lg font-bold text-green-600">₹{(stats.part / 100000).toFixed(2)}L</p>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>

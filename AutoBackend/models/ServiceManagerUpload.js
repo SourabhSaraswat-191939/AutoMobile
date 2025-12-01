@@ -20,6 +20,21 @@ const operationsSchema = new mongoose.Schema({
   amount: Number,
 });
 
+// Schema for Advisor Operations data (per advisor upload)
+const advisorOperationsSchema = new mongoose.Schema({
+  advisorName: String,
+  fileName: String,
+  uploadDate: {
+    type: Date,
+    default: Date.now,
+  },
+  totalMatchedAmount: Number,
+  matchedOperations: [{
+    operation: String,
+    amount: Number,
+  }],
+});
+
 // Schema for Warranty Claim data
 const warrantySchema = new mongoose.Schema({
   claimDate: String,
@@ -63,18 +78,38 @@ const serviceManagerUploadSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
-  startDate: String,
-  endDate: String,
+  startDate: { type: Date, index: true },
+  endDate: { type: Date, index: true },
   totalRows: Number,
+  
+  // Quick summary stats (computed on upload for fast access)
+  quickStats: {
+    totalRevenue: Number,
+    totalLabour: Number,
+    totalParts: Number,
+    roCount: Number,
+    uniqueAdvisors: Number,
+    dateRange: String
+  },
+  
   data: {
     type: mongoose.Schema.Types.Mixed,
     default: [],
   },
+  
+  // Aggregation status
+  aggregationStatus: {
+    type: String,
+    enum: ["pending", "completed", "failed"],
+    default: "pending"
+  }
 });
 
-// Create indexes for efficient querying
-serviceManagerUploadSchema.index({ uploadedBy: 1, city: 1, uploadType: 1 });
+// Optimized compound indexes for common query patterns
+serviceManagerUploadSchema.index({ uploadedBy: 1, city: 1, uploadType: 1, uploadDate: -1 });
+serviceManagerUploadSchema.index({ city: 1, uploadType: 1, startDate: -1, endDate: -1 });
 serviceManagerUploadSchema.index({ uploadDate: -1 });
+serviceManagerUploadSchema.index({ startDate: -1, endDate: -1 });
 
 const ServiceManagerUpload = mongoose.model("ServiceManagerUpload", serviceManagerUploadSchema);
 

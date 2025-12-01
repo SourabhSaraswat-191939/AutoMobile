@@ -10,14 +10,28 @@ import { getApiUrl } from "@/lib/config"
 
 interface GMDashboardData {
   dataType: string
-  cities: string[]
-  summary: {
+  cities?: string[]
+  summary?: {
     ro_billing: { count: number; totalRevenue: number }
     operations: { count: number; totalAmount: number }
     warranty: { count: number; totalClaims: number }
     service_booking: { count: number; totalBookings: number }
   }
-  citiesData: Record<string, any>
+  citiesData?: Record<string, any>
+  overallMetrics?: {
+    totalRevenue: number
+    totalROs: number
+    totalCities: number
+    avgROValue: number
+  }
+  topPerformers?: Array<{
+    advisorName: string
+    city: string
+    roBillingPerformance: {
+      totalRevenue: number
+      roCount: number
+    }
+  }>
 }
 
 export default function GMDashboard() {
@@ -94,9 +108,12 @@ export default function GMDashboard() {
         <CardContent>
           <div className="space-y-4">
             {Object.entries(dashboardData.citiesData).map(([city, data]: [string, any]) => {
-              const roBillingRevenue = data.ro_billing.reduce((sum: number, item: any) => sum + (item.totalAmount || 0), 0)
-              const operationsAmount = data.operations.reduce((sum: number, item: any) => sum + (item.amount || 0), 0)
-              const warrantyAmount = data.warranty.reduce((sum: number, item: any) => sum + (item.labour || 0) + (item.part || 0), 0)
+              // Handle the optimized data structure
+              const roBillingRevenue = data.ro_billing?.totalRevenue || 0
+              const roCount = data.ro_billing?.roCount || 0
+              const operationsAmount = data.operations?.totalAmount || 0
+              const warrantyAmount = data.warranty?.totalClaimValue || 0
+              const bookingCount = data.service_booking?.totalBookings || 0
               
               return (
                 <div key={city} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
@@ -120,25 +137,25 @@ export default function GMDashboard() {
                       <p className="text-lg font-bold text-blue-600">
                         ₹{(roBillingRevenue / 100000).toFixed(2)}L
                       </p>
-                      <p className="text-xs text-gray-500">{data.ro_billing.length} records</p>
+                      <p className="text-xs text-gray-500">{roCount} ROs</p>
                     </div>
                     <div className="bg-emerald-50 rounded p-3">
                       <p className="text-xs text-gray-600">Operations</p>
                       <p className="text-lg font-bold text-emerald-600">
                         ₹{(operationsAmount / 100000).toFixed(2)}L
                       </p>
-                      <p className="text-xs text-gray-500">{data.operations.length} records</p>
+                      <p className="text-xs text-gray-500">{data.operations?.totalOperations || 0} ops</p>
                     </div>
                     <div className="bg-purple-50 rounded p-3">
                       <p className="text-xs text-gray-600">Warranty</p>
                       <p className="text-lg font-bold text-purple-600">
                         ₹{(warrantyAmount / 100000).toFixed(2)}L
                       </p>
-                      <p className="text-xs text-gray-500">{data.warranty.length} claims</p>
+                      <p className="text-xs text-gray-500">{data.warranty?.totalClaims || 0} claims</p>
                     </div>
                     <div className="bg-orange-50 rounded p-3">
                       <p className="text-xs text-gray-600">Bookings</p>
-                      <p className="text-lg font-bold text-orange-600">{data.service_booking.length}</p>
+                      <p className="text-lg font-bold text-orange-600">{bookingCount}</p>
                       <p className="text-xs text-gray-500">Total bookings</p>
                     </div>
                   </div>
@@ -193,7 +210,13 @@ export default function GMDashboard() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Cities (Overall Statistics)</SelectItem>
-                {dashboardData?.cities.map((city) => (
+                {dashboardData?.cities?.map((city) => (
+                  <SelectItem key={city} value={city}>
+                    {city}
+                  </SelectItem>
+                )) || 
+                // Fallback: extract cities from citiesData if cities array is not available
+                dashboardData?.citiesData && Object.keys(dashboardData.citiesData).map((city) => (
                   <SelectItem key={city} value={city}>
                     {city}
                   </SelectItem>
@@ -243,7 +266,7 @@ export default function GMDashboard() {
                 </h2>
                 <p className="text-blue-100">
                   {selectedCity === "all"
-                    ? `Aggregated data from ${dashboardData.cities.length} cities`
+                    ? `Aggregated data from ${dashboardData.cities?.length || dashboardData.overallMetrics?.totalCities || Object.keys(dashboardData.citiesData || {}).length} cities`
                     : `Detailed statistics for ${selectedCity} service center`}
                 </p>
               </div>
@@ -255,28 +278,28 @@ export default function GMDashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {renderMetricCard(
               "RO Billing Records",
-              dashboardData.summary.ro_billing.count,
+              dashboardData.summary?.ro_billing?.count || dashboardData.overallMetrics?.totalROs || 0,
               <FileText className="h-5 w-5" />,
               "blue",
               "Total billing records"
             )}
             {renderMetricCard(
               "Total Revenue",
-              `₹${((dashboardData.summary.ro_billing.totalRevenue || 0) / 100000).toFixed(2)}L`,
+              `₹${((dashboardData.summary?.ro_billing?.totalRevenue || dashboardData.overallMetrics?.totalRevenue || 0) / 100000).toFixed(2)}L`,
               <DollarSign className="h-5 w-5" />,
               "emerald",
               "From RO billing"
             )}
             {renderMetricCard(
               "Operations Records",
-              dashboardData.summary.operations.count,
+              dashboardData.summary?.operations?.count || 0,
               <BarChart3 className="h-5 w-5" />,
               "green",
               "Total operations"
             )}
             {renderMetricCard(
               "Operations Amount",
-              `₹${((dashboardData.summary.operations.totalAmount || 0) / 100000).toFixed(2)}L`,
+              `₹${((dashboardData.summary?.operations?.totalAmount || 0) / 100000).toFixed(2)}L`,
               <TrendingUp className="h-5 w-5" />,
               "purple",
               "Total operations value"
@@ -286,28 +309,28 @@ export default function GMDashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {renderMetricCard(
               "Warranty Claims",
-              dashboardData.summary.warranty.count,
+              dashboardData.summary?.warranty?.count || 0,
               <Shield className="h-5 w-5" />,
               "orange",
               "Total claims"
             )}
             {renderMetricCard(
               "Warranty Amount",
-              `₹${((dashboardData.summary.warranty.totalClaims || 0) / 100000).toFixed(2)}L`,
+              `₹${((dashboardData.summary?.warranty?.totalClaims || 0) / 100000).toFixed(2)}L`,
               <DollarSign className="h-5 w-5" />,
               "red",
               "Total claim value"
             )}
             {renderMetricCard(
               "Service Bookings",
-              dashboardData.summary.service_booking.count,
+              dashboardData.summary?.service_booking?.count || 0,
               <Calendar className="h-5 w-5" />,
               "blue",
               "Total bookings"
             )}
             {renderMetricCard(
               "Active Cities",
-              dashboardData.cities.length,
+              dashboardData.cities?.length || dashboardData.overallMetrics?.totalCities || Object.keys(dashboardData.citiesData || {}).length,
               <Building2 className="h-5 w-5" />,
               "emerald",
               "Service centers"

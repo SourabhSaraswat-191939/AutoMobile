@@ -106,7 +106,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth() {
   const context = useContext(AuthContext)
   if (context === undefined) {
-    throw new Error("useAuth must be used within AuthProvider")
+    // If used outside of an AuthProvider, return a safe noop context
+    // to avoid a hard crash that would render a blank page. This
+    // helps debugging and is safe because components should still
+    // handle a null `user` and `isLoading` values.
+    return {
+      user: null,
+      isLoading: false,
+      login: async () => {},
+      logout: () => {},
+    }
   }
+
   return context
 }

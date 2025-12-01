@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
-import { BarChart3, Upload, Target, LogOut, Menu, X, Settings } from "lucide-react"
+import { BarChart3, Upload, Target, LogOut, Menu, X, Settings, LayoutDashboard } from "lucide-react"
 import { useState } from "react"
 
 export function Sidebar() {
@@ -24,6 +24,12 @@ export function Sidebar() {
       href: isGM ? "/dashboard/gm" : isSM ? "/dashboard/sm" : "/dashboard/sa",
       icon: BarChart3,
       show: true,
+    },
+    {
+      label: "Overview",
+      href: "/dashboard/gm/overview",
+      icon: LayoutDashboard,
+      show: isGM || isSM,
     },
     {
       label: "Analytics",
@@ -60,6 +66,18 @@ export function Sidebar() {
       href: "/dashboard/targets",
       icon: Target,
       show: isSA,
+    },
+    {
+      label: "Targets",
+      href: "/dashboard/reports/targets",
+      icon: Target,
+      show: isSM,
+    },
+    {
+      label: "GM Targets",
+      href: "/dashboard/gm/targets",
+      icon: Target,
+      show: isGM,
     },
     {
       label: "Assign Targets",

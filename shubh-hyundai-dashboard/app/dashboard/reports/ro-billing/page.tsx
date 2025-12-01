@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Upload, AlertCircle, FileText, DollarSign, TrendingUp, BarChart3, Search } from "lucide-react"
+import { Upload, AlertCircle, FileText, Search } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { useRouter } from "next/navigation"
 import { getApiUrl } from "@/lib/config"
@@ -79,11 +79,6 @@ export default function ROBillingPage() {
     )
   }
 
-  const totalRevenue = data.reduce((sum, row) => sum + (row.totalAmount || 0), 0)
-  const totalLabour = data.reduce((sum, row) => sum + (row.labourAmt || 0), 0)
-  const totalParts = data.reduce((sum, row) => sum + (row.partAmt || 0), 0)
-  const avgBillValue = data.length ? totalRevenue / data.length : 0
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 pb-8">
       <div className="container mx-auto space-y-6">
@@ -132,11 +127,13 @@ export default function ROBillingPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isLoading && (
             <div className="text-center py-8 text-muted-foreground">Loading...</div>
-          ) : error ? (
+          )}
+          {!isLoading && error && (
             <div className="text-center py-8 text-red-600">{error}</div>
-          ) : data.length === 0 ? (
+          )}
+          {!isLoading && !error && data.length === 0 && (
             <div className="text-center py-8">
               <FileText className="h-12 w-12 mx-auto mb-4 text-gray-400" />
               <p className="text-gray-600">No data uploaded yet</p>
@@ -148,7 +145,8 @@ export default function ROBillingPage() {
                 Upload Data
               </Button>
             </div>
-          ) : (
+          )}
+          {!isLoading && !error && data.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -164,7 +162,9 @@ export default function ROBillingPage() {
                   {filteredData.map((record, idx) => (
                     <tr key={idx} className="border-b hover:bg-blue-50/50 transition-colors">
                       <td className="py-4 px-4 font-medium text-gray-900">{record.billDate}</td>
-                      <td className="py-4 px-4 text-gray-700">{record.serviceAdvisor}</td>
+                      <td className="py-4 px-4 text-gray-700">
+                        {record.serviceAdvisor}
+                      </td>
                       <td className="text-right py-4 px-4 font-semibold text-green-700">₹{record.labourAmt?.toLocaleString()}</td>
                       <td className="text-right py-4 px-4 font-semibold text-blue-700">₹{record.partAmt?.toLocaleString()}</td>
                       <td className="py-4 px-4">

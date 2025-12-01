@@ -9,6 +9,12 @@ import {
   deleteUpload,
   resetDatabase,
 } from "../controllers/serviceManagerController.js";
+import {
+  uploadAdvisorOperations,
+  getAdvisorOperations,
+  getAdvisorOperationDetails,
+  deleteAdvisorOperations,
+} from "../controllers/advisorOperationsController.js";
 import { validateServiceManager, ensureDataOwnership } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
@@ -50,5 +56,11 @@ router.get("/dashboard-data", ensureDataOwnership, getDashboardData);
 router.get("/gm-dashboard-data", getGMDashboardData); // GM dashboard route (no user-specific auth)
 router.delete("/upload/:uploadId", ensureDataOwnership, deleteUpload);
 router.delete("/reset-database", ensureDataOwnership, resetDatabase);
+
+// Advisor Operations Routes
+router.post("/advisor-operations/upload", upload.single("file"), validateServiceManager, uploadAdvisorOperations);
+router.get("/advisor-operations", ensureDataOwnership, getAdvisorOperations);
+router.get("/advisor-operations/details", ensureDataOwnership, getAdvisorOperationDetails);
+router.delete("/advisor-operations", ensureDataOwnership, deleteAdvisorOperations);
 
 export default router;
