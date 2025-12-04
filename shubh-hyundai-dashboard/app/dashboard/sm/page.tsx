@@ -180,7 +180,7 @@ const AdvisorOperationsSection = ({ user }: { user: any }) => {
     const overallLabour = getOverallLabourAmount(advisorName)
     const advisorData = getAdvisorData(advisorName)
     const vasAmount = advisorData?.totalMatchedAmount || 0
-    return vasAmount - overallLabour
+    return overallLabour - vasAmount
   }
 
   const filteredAdvisors = advisors.filter((advisor) =>

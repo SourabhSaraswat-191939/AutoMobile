@@ -347,7 +347,7 @@ const GMDashboard = () => {
   // 2. Service Labour Without VAS - Overall = Without VAS + Warranty Labour Total
   const calculateServiceLabourWithoutVAS = () => {
     // Calculate Total Without VAS (same logic as operations report)
-    // For each advisor: Without VAS = VAS Amount - Labour Amount for that advisor
+    // For each advisor: Without VAS = Labour Amount - VAS Amount for that advisor
     const advisors = [...new Set(operationsData.map(op => op.advisorName))];
     
     const totalWithoutVAS = advisors.reduce((sum, advisorName) => {
@@ -359,7 +359,7 @@ const GMDashboard = () => {
         .filter(row => row.serviceAdvisor === advisorName)
         .reduce((labourSum, row) => labourSum + (row.labourAmt || 0), 0);
       
-      const withoutVAS = vasAmount - advisorLabour;
+      const withoutVAS = advisorLabour - vasAmount;
       return sum + withoutVAS;
     }, 0);
     
