@@ -26,10 +26,6 @@ const GMDashboard = () => {
   const [selectedDepartment, setSelectedDepartment] = useState('all');
   const [isHovering, setIsHovering] = useState(false);
   const [dashboardData, setDashboardData] = useState<any>(null);
-  const [operationsData, setOperationsData] = useState<any[]>([]);
-  const [warrantyData, setWarrantyData] = useState<any[]>([]);
-  const [roBillingData, setRoBillingData] = useState<any[]>([]);
-  const [serviceBookingData, setServiceBookingData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Check user role
@@ -59,46 +55,6 @@ const GMDashboard = () => {
           setDashboardData(data);
           console.log('Overview Dashboard Data:', data);
         }
-
-        // Fetch operations data from advisor-operations API (uploaded files)
-        const opsResponse = await fetch(
-          getApiUrl(`/api/service-manager/advisor-operations?uploadedBy=${user.email}&city=${user.city}&viewMode=cumulative`)
-        );
-
-        if (opsResponse.ok) {
-          const opsData = await opsResponse.json();
-          setOperationsData(Array.isArray(opsData.data) ? opsData.data : []);
-        }
-
-        // Fetch RO Billing data for accurate labour calculation
-        const roBillingResponse = await fetch(
-          getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=ro_billing`)
-        );
-
-        if (roBillingResponse.ok) {
-          const roBillingDataRes = await roBillingResponse.json();
-          setRoBillingData(Array.isArray(roBillingDataRes.data) ? roBillingDataRes.data : []);
-        }
-
-        // Fetch warranty data for free service labour calculation
-        const warrantyResponse = await fetch(
-          getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=warranty`)
-        );
-
-        if (warrantyResponse.ok) {
-          const warrantyDataRes = await warrantyResponse.json();
-          setWarrantyData(Array.isArray(warrantyDataRes.data) ? warrantyDataRes.data : []);
-        }
-
-        // Fetch service booking data for booking status breakdown
-        const serviceBookingResponse = await fetch(
-          getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=service_booking`)
-        );
-
-        if (serviceBookingResponse.ok) {
-          const serviceBookingDataRes = await serviceBookingResponse.json();
-          setServiceBookingData(Array.isArray(serviceBookingDataRes.data) ? serviceBookingDataRes.data : []);
-        }
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
       } finally {
@@ -109,74 +65,58 @@ const GMDashboard = () => {
     fetchDashboardData();
   }, [user?.email, user?.city]);
 
-  // Dealership/Branch Information - Use real branch data
+  // Dealership/Branch Information
   const dealershipInfo = {
     id: 1,
-    name: `Shubh Hyundai - ${user?.city || 'Branch'}`,
-    address: `${user?.city || 'City'}, Maharashtra`,
-    manager: 'Branch Manager',
+    name: 'Shubh Hyundai - Nagpur Central',
+    address: 'Plot No. 45, Central Avenue, Nagpur, Maharashtra 440001',
+    manager: 'Rajesh Kumar Sharma',
     establishedDate: '2018-03-15',
-    totalEmployees: Math.floor((roBillingData.length || 0) / 10) + 50, // Dynamic based on RO volume
-    activeToday: Math.floor((roBillingData.length || 0) / 12) + 40,
+    totalEmployees: 156,
+    activeToday: 142,
     departments: 8,
     contactNumber: '+91 98765 43210',
-    email: `${(user?.city || 'branch').toLowerCase()}@shubhhyundai.com`
+    email: 'nagpur.central@shubhhyundai.com'
   };
 
-  // Service Department Detailed Stats - Real Data from RO Billing
-  const serviceDepartmentStats = (() => {
-    // Calculate real data from RO Billing
-    const freeServiceData = roBillingData.filter(row => 
-      row.workType?.toLowerCase().includes('free')
-    );
-    const runningRepairData = roBillingData.filter(row => 
-      row.workType?.toLowerCase().includes('running') || 
-      row.workType?.toLowerCase().includes('r&r') ||
-      row.workType?.toLowerCase().includes('rr')
-    );
-    const paidServiceData = roBillingData.filter(row => 
-      row.workType?.toLowerCase().includes('paid')
-    );
+  // Service Department Detailed Stats
+  const serviceDepartmentStats = {
+    freeServices: {
+      total: 145,
+      completed: 38,
+      remaining: 7,
+      percentage: 84.4
+    },
+    runningRepairs: {
+      total: 89,
+      completed: 72,
+      remaining: 17,
+      percentage: 80.9
+    },
+    paidServices: {
+      total: 156,
+      completed: 142,
+      remaining: 14,
+      percentage: 91.0
+    },
+    ros: {
+      target: 180,
+      achieved: 156,
+      percentage: 86.7
+    }
+  };
 
-    const totalROs = roBillingData.length;
-    const totalRevenue = roBillingData.reduce((sum, row) => sum + (row.labourAmt || 0) + (row.partAmt || 0), 0);
-
-    // Console log to verify real data
-    console.log('Service Department Stats (Real Data):', {
-      totalROs,
-      freeServiceCount: freeServiceData.length,
-      runningRepairCount: runningRepairData.length,
-      paidServiceCount: paidServiceData.length,
-      roBillingDataLength: roBillingData.length,
-      sampleWorkTypes: roBillingData.slice(0, 5).map(row => row.workType)
-    });
-
-    return {
-      freeServices: {
-        total: freeServiceData.length,
-        completed: freeServiceData.length, // All records are completed
-        remaining: 0,
-        percentage: totalROs > 0 ? (freeServiceData.length / totalROs) * 100 : 0
-      },
-      runningRepairs: {
-        total: runningRepairData.length,
-        completed: runningRepairData.length, // All records are completed
-        remaining: 0,
-        percentage: totalROs > 0 ? (runningRepairData.length / totalROs) * 100 : 0
-      },
-      paidServices: {
-        total: paidServiceData.length,
-        completed: paidServiceData.length, // All records are completed
-        remaining: 0,
-        percentage: totalROs > 0 ? (paidServiceData.length / totalROs) * 100 : 0
-      },
-      ros: {
-        target: totalROs + 50, // Set target slightly higher than current
-        achieved: totalROs,
-        percentage: totalROs > 0 ? ((totalROs / (totalROs + 50)) * 100) : 0
-      }
-    };
-  })();
+  // Key Metrics Summary
+  const keyMetrics = {
+    totalVehiclesSold: 342,
+    monthlyRevenue: 28500000,
+    serviceAppointments: 487,
+    inventoryValue: 125000000,
+    customerSatisfaction: 94,
+    testDrivesScheduled: 156,
+    pendingDeliveries: 23,
+    activeLeads: 289
+  };
 
   // Service Department Stats - Use real data from backend
   const serviceStats = {
@@ -187,229 +127,6 @@ const GMDashboard = () => {
     averageServiceTime: 2.5,
     customerRating: 4.6,
     revenue: dashboardData?.summary?.ro_billing?.totalRevenue || 0
-  };
-
-  // Key Metrics Summary - Real Data from APIs
-  const keyMetrics = {
-    totalVehiclesSold: roBillingData.length || 0,
-    monthlyRevenue: roBillingData.reduce((sum, row) => sum + (row.labourAmt || 0) + (row.partAmt || 0), 0),
-    serviceAppointments: serviceStats.totalAppointments,
-    inventoryValue: roBillingData.reduce((sum, row) => sum + (row.partAmt || 0), 0) * 2, // Estimate based on parts sold
-    warrantyClaims: warrantyData.length || 0,
-    testDrivesScheduled: Math.floor((roBillingData.length || 0) * 0.3) || 0,
-    pendingDeliveries: Math.floor((roBillingData.length || 0) * 0.05) || 0,
-    activeLeads: Math.floor((roBillingData.length || 0) * 0.8) || 0
-  };
-
-  // Calculate bodyshop (Accidental Repair) metrics from RO Billing data
-  const calculateBodyshopMetrics = () => {
-    const bodyshopData = roBillingData.filter(row => 
-      row.workType?.toLowerCase().includes('accidental repair')
-    );
-
-    const totalROs = bodyshopData.length;
-    const totalLabour = bodyshopData.reduce((sum, row) => sum + (row.labourAmt || 0), 0);
-    const totalParts = bodyshopData.reduce((sum, row) => sum + (row.partAmt || 0), 0);
-    const perRO = totalROs > 0 ? (totalLabour + totalParts) / totalROs : 0;
-
-    console.log('Bodyshop Metrics:', {
-      totalROs,
-      totalLabour,
-      totalParts,
-      perRO,
-      bodyshopDataCount: bodyshopData.length
-    });
-
-    return {
-      totalROs,
-      totalLabour,
-      totalParts,
-      perRO
-    };
-  };
-
-  // Calculate Combined Performance Amount (Service Labour With VAS + Bodyshop Labour)
-  const calculateCombinedPerformanceAmount = () => {
-    // Get Service Labour With VAS amount
-    const serviceLabourWithVAS = calculateServiceLabourWithVAS();
-    
-    // Calculate Bodyshop Labour from Accidental Repair data
-    const bodyshopData = roBillingData.filter(row => 
-      row.workType?.toLowerCase().includes('accidental repair')
-    );
-    const bodyshopLabour = bodyshopData.reduce((sum, row) => sum + (row.labourAmt || 0), 0);
-    
-    const combinedAmount = serviceLabourWithVAS + bodyshopLabour;
-    
-    console.log('Combined Performance Amount:', {
-      serviceLabourWithVAS,
-      bodyshopLabour,
-      combinedAmount,
-      bodyshopDataCount: bodyshopData.length
-    });
-    
-    return combinedAmount;
-  };
-
-  // Calculate Combined Parts Amount (Service + Bodyshop + Warranty Parts)
-  const calculateCombinedPartsAmount = () => {
-    // 1. Service Advisor Performance - overall parts amount (non-accidental repair)
-    const servicePartsData = roBillingData.filter(row => 
-      !row.workType?.toLowerCase().includes('accidental repair')
-    );
-    const servicePartsAmount = servicePartsData.reduce((sum, row) => sum + (row.partAmt || 0), 0);
-    
-    // 2. Bodyshop - Accidental Repair - overall parts amount
-    const bodyshopPartsData = roBillingData.filter(row => 
-      row.workType?.toLowerCase().includes('accidental repair')
-    );
-    const bodyshopPartsAmount = bodyshopPartsData.reduce((sum, row) => sum + (row.partAmt || 0), 0);
-    
-    // 3. Warranty - overall parts amount
-    const warrantyPartsAmount = warrantyData.reduce((sum, row) => sum + (parseFloat(row.part) || 0), 0);
-    
-    const combinedPartsAmount = servicePartsAmount + bodyshopPartsAmount + warrantyPartsAmount;
-    
-    console.log('Combined Parts Amount:', {
-      servicePartsAmount,
-      bodyshopPartsAmount,
-      warrantyPartsAmount,
-      combinedPartsAmount,
-      serviceDataCount: servicePartsData.length,
-      bodyshopDataCount: bodyshopPartsData.length,
-      warrantyDataCount: warrantyData.length
-    });
-    
-    return combinedPartsAmount;
-  };
-
-  // Calculate Service Booking Metrics (same logic as SM page)
-  const calculateServiceBookingMetrics = () => {
-    const completed = serviceBookingData.filter((row: any) => {
-      const status = row.status?.toLowerCase();
-      return status === "completed" || status === "close" || status === "closed";
-    }).length;
-    
-    const pending = serviceBookingData.filter((row: any) => {
-      const status = row.status?.toLowerCase();
-      return status === "pending" || status === "in progress";
-    }).length;
-    
-    const open = serviceBookingData.filter((row: any) => row.status?.toLowerCase() === "open").length;
-    
-    const cancelled = serviceBookingData.filter((row: any) => {
-      const status = row.status?.toLowerCase();
-      return status === "cancel" || status === "cancelled" || status === "canceled";
-    }).length;
-    
-    const totalBookings = serviceBookingData.length;
-    
-    console.log('Service Booking Metrics:', {
-      totalBookings,
-      completed,
-      pending,
-      open,
-      cancelled,
-      dataCount: serviceBookingData.length
-    });
-    
-    return {
-      totalBookings,
-      completed,
-      pending,
-      open,
-      cancelled
-    };
-  };
-
-  // Calculate new fields for the sliding card
-  // 1. Service Labour With VAS - Overall = RO Billing Labour + Warranty Labour Total
-  const calculateServiceLabourWithVAS = () => {
-    // Calculate RO Billing Labour from actual data (without tax)
-    const roBillingLabour = roBillingData.reduce((sum, row) => sum + (row.labourAmt || 0), 0);
-    
-    // Calculate Warranty Labour Total from actual data
-    const warrantyLabourTotal = warrantyData.reduce((sum, row) => sum + (parseFloat(row.labour) || 0), 0);
-    
-    const result = roBillingLabour + warrantyLabourTotal;
-    
-    console.log('Service Labour With VAS Calculation:', {
-      roBillingLabour,
-      warrantyLabourTotal,
-      result,
-      roBillingDataCount: roBillingData.length,
-      warrantyDataCount: warrantyData.length
-    });
-    
-    return result;
-  };
-
-  // 2. Service Labour Without VAS - Overall = Without VAS + Warranty Labour Total
-  const calculateServiceLabourWithoutVAS = () => {
-    // Calculate Total Without VAS (same logic as operations report)
-    // For each advisor: Without VAS = Labour Amount - VAS Amount for that advisor
-    const advisors = [...new Set(operationsData.map(op => op.advisorName))];
-    
-    const totalWithoutVAS = advisors.reduce((sum, advisorName) => {
-      const advisorOps = operationsData.find(op => op.advisorName === advisorName);
-      const vasAmount = advisorOps?.totalMatchedAmount || 0;
-      
-      // Get labour amount for this advisor from RO Billing data
-      const advisorLabour = roBillingData
-        .filter(row => row.serviceAdvisor === advisorName)
-        .reduce((labourSum, row) => labourSum + (row.labourAmt || 0), 0);
-      
-      const withoutVAS = advisorLabour - vasAmount;
-      return sum + withoutVAS;
-    }, 0);
-    
-    // Calculate Warranty Labour Total from actual data
-    const warrantyLabourTotal = warrantyData.reduce((sum, row) => sum + (parseFloat(row.labour) || 0), 0);
-    
-    // Add both: Total Without VAS + Warranty Labour Total
-    const result = totalWithoutVAS + warrantyLabourTotal;
-    
-    console.log('Service Labour Without VAS Calculation:', {
-      totalWithoutVAS,
-      warrantyLabourTotal,
-      result,
-      operationsDataCount: operationsData.length,
-      roBillingDataCount: roBillingData.length,
-      warrantyDataCount: warrantyData.length,
-      advisorsCount: advisors.length
-    });
-    
-    return result;
-  };
-
-  // 3. Service With Free Service Labour = RO Billing Labour + Warranty Free Service Labour
-  const calculateServiceWithFreeServiceLabour = () => {
-    // Calculate RO Billing Labour from actual data (without tax)
-    const roBillingLabour = roBillingData.reduce((sum, row) => sum + (row.labourAmt || 0), 0);
-    
-    // Calculate Warranty Free Service Labour (only free service claims)
-    const warrantyFreeServiceLabour = warrantyData
-      .filter((claim: any) => {
-        const claimType = (claim.claimType || '').toLowerCase();
-        return claimType.includes('free') || claimType.includes('fsc');
-      })
-      .reduce((sum: number, claim: any) => sum + (parseFloat(claim.labour) || 0), 0);
-    
-    const result = roBillingLabour + warrantyFreeServiceLabour;
-    
-    console.log('Service With Free Service Labour Calculation:', {
-      roBillingLabour,
-      warrantyFreeServiceLabour,
-      result,
-      roBillingDataCount: roBillingData.length,
-      warrantyDataCount: warrantyData.length,
-      freeServiceCount: warrantyData.filter((claim: any) => {
-        const claimType = (claim.claimType || '').toLowerCase();
-        return claimType.includes('free') || claimType.includes('fsc');
-      }).length
-    });
-    
-    return result;
   };
 
   // Branch/Showroom Data for Sliding Cards - Use RO Billing data
@@ -671,24 +388,13 @@ const GMDashboard = () => {
                             </div>
                           </div>
 
-                          {/* Combined Performance Amount */}
+                          {/* Performance Score */}
                           <div className="bg-white rounded-2xl p-5 shadow-2xl border border-gray-100">
                             <div className="text-center">
-                              <div className="text-sm text-gray-600 mb-2">Overall Labour Amount</div>
-                              <div className="text-3xl font-bold text-gray-900 mb-3">₹{(calculateCombinedPerformanceAmount() / 100000).toFixed(2)}L</div>
-                              <div className="px-4 py-2 rounded-full text-sm font-medium border-2 bg-green-100 text-green-600 border-green-200">
-                                Service + Bodyshop Labour
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Combined Parts Amount */}
-                          <div className="bg-white rounded-2xl p-5 shadow-2xl border border-gray-100">
-                            <div className="text-center">
-                              <div className="text-sm text-gray-600 mb-2">Overall Parts Amount</div>
-                              <div className="text-3xl font-bold text-gray-900 mb-3">₹{(calculateCombinedPartsAmount() / 100000).toFixed(2)}L</div>
-                              <div className="px-4 py-2 rounded-full text-sm font-medium border-2 bg-blue-100 text-blue-600 border-blue-200">
-                                Service + Bodyshop + Warranty Parts
+                              <div className="text-sm text-gray-600 mb-2">Overall Performance</div>
+                              <div className="text-4xl font-bold text-gray-900 mb-3">{showroom.performance}%</div>
+                              <div className={`px-4 py-2 rounded-full text-sm font-medium border-2 ${getPerformanceColor(showroom.performance)}`}>
+                                {getPerformanceText(showroom.performance)}
                               </div>
                             </div>
                           </div>
@@ -698,90 +404,85 @@ const GMDashboard = () => {
                         <div className="lg:col-span-7 flex flex-col space-y-4">
                           {/* Main Metrics Grid */}
                           <div className="grid grid-cols-3 gap-4">
-                            {/* Service Labour With VAS - Overall */}
+                            {/* Total Labour Amount */}
                             <div className="bg-white rounded-xl p-4 shadow-lg text-center hover:shadow-xl transition-all duration-300 hover:scale-105 border border-emerald-100">
                               <div className="flex justify-center mb-3">
                                 <div className="bg-emerald-100 p-3 rounded-xl">
                                   <Wrench className="h-6 w-6 text-emerald-600" />
                                 </div>
                               </div>
-                              <div className="text-lg font-bold text-gray-900 mb-1">{formatCurrency(calculateServiceLabourWithVAS())}</div>
-                              <div className="text-sm text-gray-600 mb-2">Service Labour With VAS</div>
-                              <div className="text-xs text-emerald-600 font-medium bg-emerald-50 px-2 py-1 rounded-full border border-emerald-200">
-                                Overall
+                              <div className="text-lg font-bold text-gray-900 mb-1">{formatCurrency(showroom.labourAmount)}</div>
+                              <div className="text-sm text-gray-600 mb-2">Total Labour Amount</div>
+                              <div className="text-xs text-green-600 font-medium bg-green-50 px-2 py-1 rounded-full border border-green-200">
+                                {showroom.growth} this month
                               </div>
                             </div>
                             
-                            {/* Service Labour Without VAS - Overall */}
+                            {/* Total Part Amount */}
                             <div className="bg-white rounded-xl p-4 shadow-lg text-center hover:shadow-xl transition-all duration-300 hover:scale-105 border border-blue-100">
                               <div className="flex justify-center mb-3">
                                 <div className="bg-blue-100 p-3 rounded-xl">
-                                  <Shield className="h-6 w-6 text-blue-600" />
+                                  <Package className="h-6 w-6 text-blue-600" />
                                 </div>
                               </div>
-                              <div className="text-lg font-bold text-gray-900 mb-1">{formatCurrency(calculateServiceLabourWithoutVAS())}</div>
-                              <div className="text-sm text-gray-600 mb-2">Service Labour Without VAS</div>
+                              <div className="text-lg font-bold text-gray-900 mb-1">{formatCurrency(showroom.partAmount)}</div>
+                              <div className="text-sm text-gray-600 mb-2">Total Part Amount</div>
                               <div className="text-xs text-blue-600 font-medium bg-blue-50 px-2 py-1 rounded-full border border-blue-200">
-                                Overall
+                                +8% this month
                               </div>
                             </div>
                             
-                            {/* Service With Free Service Labour */}
+                            {/* Average Labour Amount */}
                             <div className="bg-white rounded-xl p-4 shadow-lg text-center hover:shadow-xl transition-all duration-300 hover:scale-105 border border-orange-100">
                               <div className="flex justify-center mb-3">
                                 <div className="bg-orange-100 p-3 rounded-xl">
-                                  <Award className="h-6 w-6 text-orange-600" />
+                                  <BarChart3 className="h-6 w-6 text-orange-600" />
                                 </div>
                               </div>
-                              <div className="text-lg font-bold text-gray-900 mb-1">{formatCurrency(calculateServiceWithFreeServiceLabour())}</div>
-                              <div className="text-sm text-gray-600 mb-2">Service With Free Service Labour</div>
-                              <div className="text-xs text-orange-600 font-medium bg-orange-50 px-2 py-1 rounded-full border border-orange-200">
-                                RO + Warranty FSC
+                              <div className="text-lg font-bold text-gray-900 mb-1">{formatCurrency(showroom.avgLabourAmount)}</div>
+                              <div className="text-sm text-gray-600 mb-2">Avg Labour Amount</div>
+                              <div className="text-xs text-purple-600 font-medium bg-purple-50 px-2 py-1 rounded-full border border-purple-200">
+                                Per RO
                               </div>
                             </div>
                           </div>
 
-                          {/* Bodyshop Performance (Accidental Repair) */}
+                          {/* Performance Indicators */}
                           <div className="bg-white rounded-2xl p-5 shadow-2xl border border-gray-100">
                             <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                              <Car className="h-5 w-5 text-red-600 mr-2" />
-                              Bodyshop Performance (Accidental Repair)
+                              <Target className="h-5 w-5 text-blue-600 mr-2" />
+                              Key Performance Indicators
                             </h4>
-                            {(() => {
-                              const bodyshopMetrics = calculateBodyshopMetrics();
-                              return (
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div className="flex items-center justify-between p-3 bg-gradient-to-r from-red-50 to-pink-50 rounded-xl border border-red-200">
-                                    <div className="flex items-center">
-                                      <FileText className="h-4 w-4 text-red-600 mr-2" />
-                                      <span className="text-sm text-gray-700">ROs Body Shop</span>
-                                    </div>
-                                    <span className="text-lg font-bold text-gray-900">{bodyshopMetrics.totalROs}</span>
-                                  </div>
-                                  <div className="flex items-center justify-between p-3 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl border border-orange-200">
-                                    <div className="flex items-center">
-                                      <IndianRupee className="h-4 w-4 text-orange-600 mr-2" />
-                                      <span className="text-sm text-gray-700">Per RO</span>
-                                    </div>
-                                    <span className="text-lg font-bold text-gray-900">₹{((bodyshopMetrics.perRO) / 100000).toFixed(2)}L</span>
-                                  </div>
-                                  <div className="flex items-center justify-between p-3 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl border border-blue-200">
-                                    <div className="flex items-center">
-                                      <Wrench className="h-4 w-4 text-blue-600 mr-2" />
-                                      <span className="text-sm text-gray-700">Labour Amount</span>
-                                    </div>
-                                    <span className="text-lg font-bold text-gray-900">₹{((bodyshopMetrics.totalLabour) / 100000).toFixed(2)}L</span>
-                                  </div>
-                                  <div className="flex items-center justify-between p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border border-green-200">
-                                    <div className="flex items-center">
-                                      <Package className="h-4 w-4 text-green-600 mr-2" />
-                                      <span className="text-sm text-gray-700">Part Amount</span>
-                                    </div>
-                                    <span className="text-lg font-bold text-gray-900">₹{((bodyshopMetrics.totalParts) / 100000).toFixed(2)}L</span>
-                                  </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="flex items-center justify-between p-3 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl border border-blue-200">
+                                <div className="flex items-center">
+                                  <TrendingUp className="h-4 w-4 text-blue-600 mr-2" />
+                                  <span className="text-sm text-gray-700">Conversion Rate</span>
                                 </div>
-                              );
-                            })()}
+                                <span className="text-lg font-bold text-gray-900">{showroom.conversionRate}%</span>
+                              </div>
+                              <div className="flex items-center justify-between p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border border-green-200">
+                                <div className="flex items-center">
+                                  <Award className="h-4 w-4 text-green-600 mr-2" />
+                                  <span className="text-sm text-gray-700">Satisfaction</span>
+                                </div>
+                                <span className="text-lg font-bold text-gray-900">{showroom.satisfaction}%</span>
+                              </div>
+                              <div className="flex items-center justify-between p-3 bg-gradient-to-r from-purple-50 to-violet-50 rounded-xl border border-purple-200">
+                                <div className="flex items-center">
+                                  <DollarSign className="h-4 w-4 text-purple-600 mr-2" />
+                                  <span className="text-sm text-gray-700">Avg. Revenue</span>
+                                </div>
+                                <span className="text-lg font-bold text-gray-900">{showroom.avgRevenue}</span>
+                              </div>
+                              <div className="flex items-center justify-between p-3 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl border border-orange-200">
+                                <div className="flex items-center">
+                                  <Activity className="h-4 w-4 text-orange-600 mr-2" />
+                                  <span className="text-sm text-gray-700">Growth</span>
+                                </div>
+                                <span className="text-lg font-bold text-green-600">{showroom.growth}</span>
+                              </div>
+                            </div>
                           </div>
 
                           {/* Achievements Section */}
@@ -843,7 +544,7 @@ const GMDashboard = () => {
                 </div>
               </div>
               <div className="text-2xl font-bold text-gray-900">{keyMetrics.totalVehiclesSold}</div>
-              <div className="text-sm text-gray-600 mt-1">Vehicles Sold</div>
+              <div className="text-sm text-gray-600 mt-1">ROs</div>
             </div>
 
             <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200 hover:shadow-xl transition-all duration-300">
@@ -871,21 +572,21 @@ const GMDashboard = () => {
                 </div>
               </div>
               <div className="text-2xl font-bold text-gray-900">{serviceStats.totalAppointments}</div>
-              <div className="text-sm text-gray-600 mt-1">Service Jobs</div>
+              <div className="text-sm text-gray-600 mt-1">RO Labour</div>
             </div>
 
             <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200 hover:shadow-xl transition-all duration-300">
               <div className="flex items-center justify-between mb-4">
                 <div className="bg-orange-100 p-3 rounded-lg">
-                  <Shield className="h-6 w-6 text-orange-600" />
+                  <Award className="h-6 w-6 text-orange-600" />
                 </div>
                 <div className="flex items-center text-green-600">
                   <TrendingUpIcon className="h-4 w-4 mr-1" />
-                  <span className="text-sm font-medium">+{warrantyData.length > 0 ? '5.3' : '0'}%</span>
+                  <span className="text-sm font-medium">+2.2%</span>
                 </div>
               </div>
-              <div className="text-2xl font-bold text-gray-900">{keyMetrics.warrantyClaims}</div>
-              <div className="text-sm text-gray-600 mt-1">Warranty Claims</div>
+              <div className="text-2xl font-bold text-gray-900">{keyMetrics.customerSatisfaction}%</div>
+              <div className="text-sm text-gray-600 mt-1">Customer Satisfaction</div>
             </div>
           </div>
         </div>
@@ -897,85 +598,50 @@ const GMDashboard = () => {
             <div className="lg:col-span-2 bg-white rounded-xl p-6 shadow-lg border border-gray-200">
               <h3 className="text-2xl font-bold text-gray-900 mb-8">{dealershipInfo.name}</h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {(() => {
-                  const bookingMetrics = calculateServiceBookingMetrics();
-                  return (
-                    <>
-                      {/* Total Bookings */}
-                      <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200 shadow-sm">
-                        <div className="flex items-center mb-3">
-                          <div className="bg-blue-500 p-2 rounded-lg mr-3">
-                            <Calendar className="h-5 w-5 text-white" />
-                          </div>
-                          <div className="text-sm text-blue-700 font-medium">Total Bookings</div>
-                        </div>
-                        <div className="text-2xl font-bold text-blue-900">{bookingMetrics.totalBookings}</div>
-                        <div className="text-xs text-blue-600 mt-1">Service Appointments</div>
-                      </div>
-                      
-                      {/* Completed (Close) */}
-                      <div className="bg-gradient-to-r from-green-50 to-green-100 rounded-xl p-5 border border-green-200 shadow-sm">
-                        <div className="flex items-center mb-3">
-                          <div className="bg-green-500 p-2 rounded-lg mr-3">
-                            <CheckCircle className="h-5 w-5 text-white" />
-                          </div>
-                          <div className="text-sm text-green-700 font-medium">Completed (Close)</div>
-                        </div>
-                        <div className="text-2xl font-bold text-green-900">{bookingMetrics.completed}</div>
-                        <div className="text-xs text-green-600 mt-1">Finished Services</div>
-                      </div>
-                      
-                      {/* Pending (In Progress) */}
-                      <div className="bg-gradient-to-r from-orange-50 to-orange-100 rounded-xl p-5 border border-orange-200 shadow-sm">
-                        <div className="flex items-center mb-3">
-                          <div className="bg-orange-500 p-2 rounded-lg mr-3">
-                            <Clock className="h-5 w-5 text-white" />
-                          </div>
-                          <div className="text-sm text-orange-700 font-medium">Pending (In Progress)</div>
-                        </div>
-                        <div className="text-2xl font-bold text-orange-900">{bookingMetrics.pending}</div>
-                        <div className="text-xs text-orange-600 mt-1">In Progress</div>
-                      </div>
-                      
-                      {/* Open */}
-                      <div className="bg-gradient-to-r from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200 shadow-sm">
-                        <div className="flex items-center mb-3">
-                          <div className="bg-purple-500 p-2 rounded-lg mr-3">
-                            <FileText className="h-5 w-5 text-white" />
-                          </div>
-                          <div className="text-sm text-purple-700 font-medium">Open</div>
-                        </div>
-                        <div className="text-2xl font-bold text-purple-900">{bookingMetrics.open}</div>
-                        <div className="text-xs text-purple-600 mt-1">Open Bookings</div>
-                      </div>
-                      
-                      {/* Cancelled */}
-                      <div className="bg-gradient-to-r from-red-50 to-red-100 rounded-xl p-5 border border-red-200 shadow-sm">
-                        <div className="flex items-center mb-3">
-                          <div className="bg-red-500 p-2 rounded-lg mr-3">
-                            <XCircle className="h-5 w-5 text-white" />
-                          </div>
-                          <div className="text-sm text-red-700 font-medium">Cancelled</div>
-                        </div>
-                        <div className="text-2xl font-bold text-red-900">{bookingMetrics.cancelled}</div>
-                        <div className="text-xs text-red-600 mt-1">Cancelled Bookings</div>
-                      </div>
-                      
-                      {/* Branch Info Card */}
-                      <div className="bg-gradient-to-r from-indigo-50 to-indigo-100 rounded-xl p-5 border border-indigo-200 shadow-sm">
-                        <div className="flex items-center mb-3">
-                          <div className="bg-indigo-500 p-2 rounded-lg mr-3">
-                            <Building className="h-5 w-5 text-white" />
-                          </div>
-                          <div className="text-sm text-indigo-700 font-medium">Branch</div>
-                        </div>
-                        <div className="text-lg font-bold text-indigo-900">{user?.city || 'Branch'}</div>
-                        <div className="text-xs text-indigo-600 mt-1">Location</div>
-                      </div>
-                    </>
-                  );
-                })()}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Achieved Amount Card */}
+                <div className="bg-gradient-to-r from-green-50 to-green-100 rounded-xl p-5 border border-green-200 shadow-sm">
+                  <div className="flex items-center mb-3">
+                    <div className="bg-green-500 p-2 rounded-lg mr-3">
+                      <DollarSign className="h-5 w-5 text-white" />
+                    </div>
+                    <div className="text-sm text-green-700 font-medium">Achieved Amount</div>
+                  </div>
+                  <div className="text-2xl font-bold text-green-900">{formatCurrency(serviceDepartmentStats.ros.achieved * 10000)}</div>
+                </div>
+                
+                {/* ROS Card */}
+                <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200 shadow-sm">
+                  <div className="flex items-center mb-3">
+                    <div className="bg-blue-500 p-2 rounded-lg mr-3">
+                      <Target className="h-5 w-5 text-white" />
+                    </div>
+                    <div className="text-sm text-blue-700 font-medium">ROS</div>
+                  </div>
+                  <div className="text-2xl font-bold text-blue-900">{serviceDepartmentStats.ros.percentage}%</div>
+                </div>
+                
+                {/* Remaining Amount Card */}
+                <div className="bg-gradient-to-r from-orange-50 to-orange-100 rounded-xl p-5 border border-orange-200 shadow-sm">
+                  <div className="flex items-center mb-3">
+                    <div className="bg-orange-500 p-2 rounded-lg mr-3">
+                      <AlertCircle className="h-5 w-5 text-white" />
+                    </div>
+                    <div className="text-sm text-orange-700 font-medium">Remaining Amount</div>
+                  </div>
+                  <div className="text-2xl font-bold text-orange-900">{formatCurrency((serviceDepartmentStats.ros.target - serviceDepartmentStats.ros.achieved) * 10000)}</div>
+                </div>
+                
+                {/* Date Card */}
+                <div className="bg-gradient-to-r from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200 shadow-sm">
+                  <div className="flex items-center mb-3">
+                    <div className="bg-purple-500 p-2 rounded-lg mr-3">
+                      <Calendar className="h-5 w-5 text-white" />
+                    </div>
+                    <div className="text-sm text-purple-700 font-medium">Date</div>
+                  </div>
+                  <div className="text-2xl font-bold text-purple-900">{formatDate(dealershipInfo.establishedDate)}</div>
+                </div>
               </div>
             </div>
             
@@ -992,7 +658,7 @@ const GMDashboard = () => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-lg font-bold text-blue-900">{serviceDepartmentStats.freeServices.total}</div>
+                    <div className="text-lg font-bold text-blue-900">{serviceDepartmentStats.freeServices.completed}/{serviceDepartmentStats.freeServices.total}</div>
                   </div>
                 </div>
                 <div className="bg-blue-200 rounded-full h-2">
@@ -1001,8 +667,9 @@ const GMDashboard = () => {
                     style={{ width: `${serviceDepartmentStats.freeServices.percentage}%` }}
                   ></div>
                 </div>
-                <div className="text-xs text-blue-600 mt-1 text-center">
-                  Total Free Service ROs
+                <div className="flex justify-between text-xs text-blue-700 mt-1">
+                  <span>Achieved: {serviceDepartmentStats.freeServices.completed}</span>
+                  <span>Remaining: {serviceDepartmentStats.freeServices.remaining}</span>
                 </div>
               </div>
 
@@ -1018,7 +685,7 @@ const GMDashboard = () => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-lg font-bold text-green-900">{serviceDepartmentStats.runningRepairs.total}</div>
+                    <div className="text-lg font-bold text-green-900">{serviceDepartmentStats.runningRepairs.completed}/{serviceDepartmentStats.runningRepairs.total}</div>
                   </div>
                 </div>
                 <div className="bg-green-200 rounded-full h-2">
@@ -1027,8 +694,9 @@ const GMDashboard = () => {
                     style={{ width: `${serviceDepartmentStats.runningRepairs.percentage}%` }}
                   ></div>
                 </div>
-                <div className="text-xs text-green-600 mt-1 text-center">
-                  Total Running Repair ROs
+                <div className="flex justify-between text-xs text-green-700 mt-1">
+                  <span>Achieved: {serviceDepartmentStats.runningRepairs.completed}</span>
+                  <span>Remaining: {serviceDepartmentStats.runningRepairs.remaining}</span>
                 </div>
               </div>
 
@@ -1044,7 +712,7 @@ const GMDashboard = () => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-lg font-bold text-purple-900">{serviceDepartmentStats.paidServices.total}</div>
+                    <div className="text-lg font-bold text-purple-900">{serviceDepartmentStats.paidServices.completed}/{serviceDepartmentStats.paidServices.total}</div>
                   </div>
                 </div>
                 <div className="bg-purple-200 rounded-full h-2">
@@ -1053,26 +721,17 @@ const GMDashboard = () => {
                     style={{ width: `${serviceDepartmentStats.paidServices.percentage}%` }}
                   ></div>
                 </div>
-                <div className="text-xs text-purple-600 mt-1 text-center">
-                  Total Paid Service ROs
+                <div className="flex justify-between text-xs text-purple-700 mt-1">
+                  <span>Achieved: {serviceDepartmentStats.paidServices.completed}</span>
+                  <span>Remaining: {serviceDepartmentStats.paidServices.remaining}</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Vehicle Inventory - With Blur Overlay */}
-        <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200 relative">
-          {/* Blur Overlay */}
-          <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex items-center justify-center rounded-xl">
-            <div className="text-center p-8">
-              <div className="text-4xl mb-4">🚧</div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">Coming Soon</h3>
-              <p className="text-gray-600">Vehicle Inventory by Model</p>
-              <p className="text-sm text-gray-500 mt-2">This feature is under development</p>
-            </div>
-          </div>
-          
+        {/* Vehicle Inventory */}
+        <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200">
           <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
             <Package className="h-6 w-6 text-blue-600" />
             Vehicle Inventory by Model
@@ -1115,18 +774,8 @@ const GMDashboard = () => {
           </div>
         </div>
 
-        {/* Department Performance - With Blur Overlay */}
-        <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden relative">
-          {/* Blur Overlay */}
-          <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex items-center justify-center rounded-xl">
-            <div className="text-center p-8">
-              <div className="text-4xl mb-4">📊</div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">Coming Soon</h3>
-              <p className="text-gray-600">Department Performance</p>
-              <p className="text-sm text-gray-500 mt-2">This feature is under development</p>
-            </div>
-          </div>
-          
+        {/* Department Performance */}
+        <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
               <BarChart3 className="h-6 w-6 text-blue-600" />
@@ -1190,20 +839,50 @@ const GMDashboard = () => {
           </div>
         </div>
 
-        {/* Top Performers - Removed */}
-        
-        {/* Monthly Performance Comparison - With Blur Overlay */}
-        <div className="relative">
-          {/* Blur Overlay */}
-          <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex items-center justify-center rounded-xl">
-            <div className="text-center p-8">
-              <div className="text-4xl mb-4">📈</div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">Coming Soon</h3>
-              <p className="text-gray-600">Monthly Performance Comparison</p>
-              <p className="text-sm text-gray-500 mt-2">This feature is under development</p>
-            </div>
+        {/* Top Performers */}
+        <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-200">
+          <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+            <Award className="h-6 w-6 text-yellow-500" />
+            Top Performers This Month
+          </h2>
+          <div className="space-y-4">
+            {topPerformers.map((performer, index) => (
+              <div key={performer.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                <div className="flex items-center space-x-4">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${
+                    index === 0 ? 'bg-yellow-500' : index === 1 ? 'bg-gray-400' : index === 2 ? 'bg-orange-600' : 'bg-blue-500'
+                  }`}>
+                    {index + 1}
+                  </div>
+                  <div>
+                    <div className="font-semibold text-gray-900">{performer.name}</div>
+                    <div className="text-sm text-gray-600">{performer.role}</div>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-8">
+                  <div className="text-right">
+                    <div className="text-sm text-gray-600">Sales</div>
+                    <div className="font-semibold text-gray-900">{performer.sales} units</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm text-gray-600">Revenue</div>
+                    <div className="font-semibold text-green-600">{formatCurrency(performer.revenue)}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm text-gray-600">Rating</div>
+                    <div className="flex items-center">
+                      <Star className="h-4 w-4 text-yellow-500 mr-1" />
+                      <span className="font-semibold text-gray-900">{performer.rating}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-          
+        </div>
+
+        {/* Monthly Comparison */}
+        <div>
           <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
             <TrendingUp className="h-6 w-6 text-blue-600" />
             Monthly Performance Comparison
@@ -1242,7 +921,7 @@ const GMDashboard = () => {
 
                 <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
                   <div>
-                    <div className="text-sm text-gray-600">Service Jobs</div>
+                    <div className="text-sm text-gray-600">RO Labour</div>
                     <div className="text-2xl font-bold text-purple-900">{monthlyComparison.thisMonth.serviceJobs}</div>
                   </div>
                   <div className="text-right">
@@ -1325,7 +1004,31 @@ const GMDashboard = () => {
           </div>
         </div>
 
-        {/* Service Department Summary - Removed */}
+        {/* Service Department Summary */}
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200 shadow-lg">
+          <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+            <Wrench className="h-6 w-6 text-blue-600" />
+            Service Department Summary
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="text-center bg-white rounded-lg p-4 shadow-sm">
+              <div className="text-2xl font-bold text-blue-600 mb-1">{serviceStats.completed}</div>
+              <div className="text-sm text-gray-600">Completed</div>
+            </div>
+            <div className="text-center bg-white rounded-lg p-4 shadow-sm">
+              <div className="text-2xl font-bold text-orange-600 mb-1">{serviceStats.inProgress}</div>
+              <div className="text-sm text-gray-600">In Progress</div>
+            </div>
+            <div className="text-center bg-white rounded-lg p-4 shadow-sm">
+              <div className="text-2xl font-bold text-green-600 mb-1">{serviceStats.customerRating}</div>
+              <div className="text-sm text-gray-600">Avg. Rating</div>
+            </div>
+            <div className="text-center bg-white rounded-lg p-4 shadow-sm">
+              <div className="text-2xl font-bold text-purple-600 mb-1">{formatCurrency(serviceStats.revenue)}</div>
+              <div className="text-sm text-gray-600">Service Revenue</div>
+            </div>
+          </div>
+        </div>
 
       </div>
     </div>
