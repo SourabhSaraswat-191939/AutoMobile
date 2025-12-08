@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { usePermissions } from "@/hooks/usePermissions"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Upload, AlertCircle, FileText, Search } from "lucide-react"
@@ -11,6 +12,7 @@ import { getApiUrl } from "@/lib/config"
 
 export default function ROBillingPage() {
   const { user } = useAuth()
+  const { hasPermission } = usePermissions()
   const router = useRouter()
   const [data, setData] = useState<any[]>([])
   const [filteredData, setFilteredData] = useState<any[]>([])
@@ -68,6 +70,21 @@ export default function ROBillingPage() {
     })
     setFilteredData(filtered)
   }, [searchTerm, data])
+  
+  // Check permission first
+  if (!hasPermission("ro_billing_report")) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white pb-8 flex items-center justify-center">
+        <Card className="max-w-md mx-auto">
+          <CardContent className="p-8 text-center">
+            <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-500" />
+            <h2 className="text-xl font-semibent text-gray-900 mb-2">Access Denied</h2>
+            <p className="text-gray-600">You don't have permission to view the RO Billing Report.</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   if (user?.role !== "service_manager") {
     return (

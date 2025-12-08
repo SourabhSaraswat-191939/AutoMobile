@@ -11,6 +11,7 @@ export interface User {
   email: string
   role: UserRole
   city?: string
+  org_id?: string
 }
 
 interface AuthContextType {
@@ -38,6 +39,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     setIsLoading(true)
     try {
+      // Optimized: Check cache first to avoid redundant lookups
+      const cachedUser = localStorage.getItem("user")
+      if (cachedUser) {
+        const parsedUser = JSON.parse(cachedUser)
+        if (parsedUser.email === email) {
+          setUser(parsedUser)
+          setIsLoading(false)
+          return // User already cached, skip authentication
+        }
+      }
+
       // Fake authentication - in production, call your API
       const mockUsers: Record<string, User> = {
         "gm@shubh.com": {
@@ -101,6 +113,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return <AuthContext.Provider value={{ user, isLoading, login, logout }}>{children}</AuthContext.Provider>
+}
+
+// Export all demo users for use in other components
+export const getAllDemoUsers = (): User[] => {
+  return [
+    {
+      id: "1",
+      name: "Rajesh Kumar",
+      email: "gm@shubh.com",
+      role: "general_manager",
+      city: "All Cities",
+      org_id: "shubh_hyundai"
+    },
+    {
+      id: "2",
+      name: "Amit Sharma",
+      email: "sm.pune@shubh.com",
+      role: "service_manager",
+      city: "Pune",
+      org_id: "shubh_hyundai"
+    },
+    {
+      id: "3",
+      name: "Priya Desai",
+      email: "sm.mumbai@shubh.com",
+      role: "service_manager",
+      city: "Mumbai",
+      org_id: "shubh_hyundai"
+    },
+    {
+      id: "4",
+      name: "Vikram Singh",
+      email: "sm.nagpur@shubh.com",
+      role: "service_manager",
+      city: "Nagpur",
+      org_id: "shubh_hyundai"
+    },
+    {
+      id: "5",
+      name: "Deepak Patel",
+      email: "sa.pune@shubh.com",
+      role: "service_advisor",
+      city: "Pune",
+      org_id: "shubh_hyundai"
+    },
+    {
+      id: "6",
+      name: "Kavya Nair",
+      email: "sa.mumbai@shubh.com",
+      role: "service_advisor",
+      city: "Mumbai",
+      org_id: "shubh_hyundai"
+    }
+  ]
 }
 
 export function useAuth() {

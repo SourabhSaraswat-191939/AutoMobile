@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useRef } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { usePermissions } from "@/hooks/usePermissions"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -499,6 +500,7 @@ const AdvisorOperationsSection = ({ user }: { user: any }) => {
 
 export default function SMDashboard() {
   const { user } = useAuth()
+  const { hasPermission } = usePermissions()
   const router = useRouter()
   const [selectedDataType, setSelectedDataType] = useState<DataType>("average")
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
@@ -767,16 +769,17 @@ export default function SMDashboard() {
 
         {/* Detailed Metrics in Compact Cards */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Labour & Parts Stats */}
-          <Card className="border-2 border-emerald-200 bg-gradient-to-br from-white to-emerald-50/30 shadow-lg">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-3">
-                <div className="rounded-lg bg-emerald-100 p-2">
-                  <TrendingUp className="h-5 w-5 text-emerald-600" />
+          {/* Labour & Parts Stats - RO Billing Dashboard */}
+          {hasPermission("ro_billing_dashboard") && (
+            <Card className="border-2 border-emerald-200 bg-gradient-to-br from-white to-emerald-50/30 shadow-lg">
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-emerald-100 p-2">
+                    <TrendingUp className="h-5 w-5 text-emerald-600" />
+                  </div>
+                  <CardTitle className="text-lg">Labour & Parts</CardTitle>
                 </div>
-                <CardTitle className="text-lg">Labour & Parts</CardTitle>
-              </div>
-            </CardHeader>
+              </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between p-3 rounded-lg bg-gradient-to-r from-emerald-50 to-white border border-emerald-200">
                 <div>
@@ -808,8 +811,10 @@ export default function SMDashboard() {
               </div>
             </CardContent>
           </Card>
+          )}
 
           {/* Operations Stats */}
+          {hasPermission("operations_dashboard") && (
           <Card className="border-2 border-purple-200 bg-gradient-to-br from-white to-purple-50/30 shadow-lg">
             <CardHeader className="pb-3">
               <div className="flex items-center gap-3">
@@ -842,8 +847,10 @@ export default function SMDashboard() {
               </div>
             </CardContent>
           </Card>
+          )}
 
           {/* Warranty Stats */}
+          {hasPermission("warranty_dashboard") && (
           <Card className="border-2 border-orange-200 bg-gradient-to-br from-white to-orange-50/30 shadow-lg">
             <CardHeader className="pb-3">
               <div className="flex items-center gap-3">
@@ -876,6 +883,7 @@ export default function SMDashboard() {
               </div>
             </CardContent>
           </Card>
+          )}
         </div>
 
         {/* Work Type Breakdown - Full Width */}
@@ -1604,12 +1612,14 @@ export default function SMDashboard() {
                       <CardDescription>Claim types with labour and parts breakdown</CardDescription>
                     </div>
                   </div>
+                  {hasPermission("warranty_report") && (
                   <Button
                     onClick={() => router.push("/dashboard/reports/warranty")}
                     className="bg-orange-600 hover:bg-orange-700 text-white"
                   >
                     View Full Report →
                   </Button>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>
@@ -1690,12 +1700,14 @@ export default function SMDashboard() {
                       <CardDescription>Booking completion rates by advisor</CardDescription>
                     </div>
                   </div>
+                  {hasPermission("service_booking_report") && (
                   <Button
                     onClick={() => router.push("/dashboard/reports/service-booking")}
                     className="bg-emerald-600 hover:bg-emerald-700 text-white"
                   >
                     View Full Report →
                   </Button>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>
@@ -1755,7 +1767,7 @@ export default function SMDashboard() {
                 </div>
                 <div>
                   <h1 className="text-2xl font-bold text-white drop-shadow-lg">
-                    Service Dashboard
+                    SM Dashboard
                   </h1>
                   <p className="text-blue-100 text-sm flex items-center gap-2 mt-0.5">
                     <Gauge className="h-3.5 w-3.5" />
@@ -1793,30 +1805,38 @@ export default function SMDashboard() {
                         <span className="font-medium">Average of All Data</span>
                       </div>
                     </SelectItem>
+                    {hasPermission("ro_billing_dashboard") && (
                     <SelectItem value="ro_billing">
                       <div className="flex items-center gap-2">
                         <FileText className="h-4 w-4 text-blue-600" />
                         <span>RO Billing</span>
                       </div>
                     </SelectItem>
+                    )}
+                    {hasPermission("operations_dashboard") && (
                     <SelectItem value="operations">
                       <div className="flex items-center gap-2">
                         <Wrench className="h-4 w-4 text-green-600" />
                         <span>Operations</span>
                       </div>
                     </SelectItem>
+                    )}
+                    {hasPermission("warranty_dashboard") && (
                     <SelectItem value="warranty">
                       <div className="flex items-center gap-2">
                         <Shield className="h-4 w-4 text-orange-600" />
                         <span>Warranty Claims</span>
                       </div>
                     </SelectItem>
+                    )}
+                    {hasPermission("service_booking_dashboard") && (
                     <SelectItem value="service_booking">
                       <div className="flex items-center gap-2">
                         <Calendar className="h-4 w-4 text-emerald-600" />
                         <span>Service Booking</span>
                       </div>
                     </SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>

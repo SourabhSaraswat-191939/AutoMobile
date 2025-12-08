@@ -166,7 +166,7 @@ export const uploadAdvisorOperations = async (req, res) => {
 
     // Processing metadata
     const processingMetadata = {
-      totalRowsProcessed: jsonData.length,
+      totalRowsProcessed: jsonData.length-1, // Exclude header row
       matchedRowsCount: matchedOperations.length,
       unmatchedRowsCount: jsonData.length - matchedOperations.length
     };

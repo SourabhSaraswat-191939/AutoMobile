@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { usePermissions } from "@/hooks/usePermissions"
 import { getRoBillingReports } from "@/lib/api"
 import { getApiUrl } from "@/lib/config"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -406,6 +407,7 @@ const SummaryStats = ({ advisors, assignments, cityTarget, remainingDays }: {
 
 export default function AdvisorTargetsReportPage() {
   const { user } = useAuth()
+  const { hasPermission } = usePermissions()
   const [advisors, setAdvisors] = useState<any[]>([])
   const [cityTarget, setCityTarget] = useState<any | null>(null)
   const [assignments, setAssignments] = useState<any[]>([])
@@ -668,6 +670,21 @@ export default function AdvisorTargetsReportPage() {
       prev.includes(advisorName)
         ? prev.filter(name => name !== advisorName)
         : [...prev, advisorName]
+    )
+  }
+
+  // Check permission first
+  if (!hasPermission("target_report")) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white pb-8 flex items-center justify-center">
+        <Card className="max-w-md mx-auto">
+          <CardContent className="p-8 text-center">
+            <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-500" />
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Access Denied</h2>
+            <p className="text-gray-600">You don't have permission to view the Target Report.</p>
+          </CardContent>
+        </Card>
+      </div>
     )
   }
 

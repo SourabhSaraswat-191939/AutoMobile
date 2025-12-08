@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
+import { usePermissions } from "@/hooks/usePermissions"
 import { Button } from "@/components/ui/button"
 import { BarChart3, Upload, Target, LogOut, Menu, X, Settings, LayoutDashboard } from "lucide-react"
 import { useState } from "react"
@@ -10,6 +11,7 @@ import { useState } from "react"
 export function Sidebar() {
   const { user, logout } = useAuth()
   const pathname = usePathname()
+  const { hasPermission } = usePermissions()
   const [isOpen, setIsOpen] = useState(false)
 
   if (!user) return null
@@ -19,71 +21,72 @@ export function Sidebar() {
   const isSA = user.role === "service_advisor"
 
   const navItems = [
+    // Main Dashboards - Always show based on role
     {
       label: "Dashboard",
       href: isGM ? "/dashboard/gm" : isSM ? "/dashboard/sm" : "/dashboard/sa",
       icon: BarChart3,
-      show: true,
+      show: true, // Everyone can see their respective dashboard
     },
+    
+    // GM Module Pages - GM sees all, others need permission
     {
       label: "Overview",
       href: "/dashboard/gm/overview",
       icon: LayoutDashboard,
-      show: isGM || isSM,
-    },
-    {
-      label: "Analytics",
-      href: "/dashboard/analytics",
-      icon: BarChart3,
-      show: isGM,
-    },
-    {
-      label: "RO Billing",
-      href: "/dashboard/reports/ro-billing",
-      icon: Upload,
-      show: isSM,
-    },
-    {
-      label: "Operations",
-      href: "/dashboard/reports/operations",
-      icon: Upload,
-      show: isSM,
-    },
-    {
-      label: "Warranty",
-      href: "/dashboard/reports/warranty",
-      icon: Upload,
-      show: isSM,
-    },
-    {
-      label: "Service Booking",
-      href: "/dashboard/reports/service-booking",
-      icon: Upload,
-      show: isSM,
-    },
-    {
-      label: "Target Tracking",
-      href: "/dashboard/targets",
-      icon: Target,
-      show: isSA,
-    },
-    {
-      label: "Targets",
-      href: "/dashboard/reports/targets",
-      icon: Target,
-      show: isSM,
+      show: isGM || hasPermission("overview"),
     },
     {
       label: "GM Targets",
       href: "/dashboard/gm/targets",
       icon: Target,
-      show: isGM,
+      show: isGM || hasPermission("gm_targets"),
     },
     {
-      label: "Assign Targets",
-      href: "/dashboard/assign-targets",
+      label: "User Access",
+      href: "/dashboard/gm/user-access",
       icon: Settings,
-      show: isGM,
+      show: isGM || hasPermission("manage_users"),
+    },
+    
+    // Upload - Single permission for all uploads (SM/SA only, not GM)
+    {
+      label: "Upload",
+      href: "/dashboard/sm/upload",
+      icon: Upload,
+      show: (isSM || isSA) && hasPermission("upload"),
+    },
+    
+    // Reports - Show if user has permission
+    {
+      label: "Target Report",
+      href: "/dashboard/reports/targets",
+      icon: Target,
+      show: hasPermission("target_report"),
+    },
+    {
+      label: "RO Billing Report",
+      href: "/dashboard/reports/ro-billing",
+      icon: BarChart3,
+      show: hasPermission("ro_billing_report"),
+    },
+    {
+      label: "Warranty Report",
+      href: "/dashboard/reports/warranty",
+      icon: BarChart3,
+      show: hasPermission("warranty_report"),
+    },
+    {
+      label: "Operations Report",
+      href: "/dashboard/reports/operations",
+      icon: BarChart3,
+      show: hasPermission("operations_report"),
+    },
+    {
+      label: "Service Booking Report",
+      href: "/dashboard/reports/service-booking",
+      icon: BarChart3,
+      show: hasPermission("service_booking_report"),
     },
   ]
 

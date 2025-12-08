@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { usePermissions } from "@/hooks/usePermissions"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { FileText, DollarSign, Shield, Calendar, TrendingUp, BarChart3, Loader2, Building2, Filter } from "lucide-react"
@@ -36,6 +37,7 @@ interface GMDashboardData {
 
 export default function GMDashboard() {
   const { user } = useAuth()
+  const { hasPermission, isLoading: permissionsLoading } = usePermissions()
   const [selectedCity, setSelectedCity] = useState<string>("all")
   const [dashboardData, setDashboardData] = useState<GMDashboardData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -168,12 +170,24 @@ export default function GMDashboard() {
     )
   }
 
-  if (user?.role !== "general_manager") {
+  // Check permissions first, then fallback to role
+  const canAccess = hasPermission('can_access_gm_dashboard') || user?.role === "general_manager"
+  
+  if (permissionsLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+        <p className="ml-4 text-gray-600">Loading permissions...</p>
+      </div>
+    )
+  }
+
+  if (!canAccess) {
     return (
       <div className="text-center py-12">
         <Shield className="h-12 w-12 text-red-600 mx-auto mb-4" />
         <p className="text-lg font-semibold">Access Denied</p>
-        <p className="text-muted-foreground">Only General Managers can access this page</p>
+        <p className="text-muted-foreground">You don't have permission to access the GM Dashboard</p>
       </div>
     )
   }
@@ -183,9 +197,9 @@ export default function GMDashboard() {
       {/* Header Section */}
       <div className="flex items-center justify-between">
         <div className="space-y-2">
-          <h1 className="text-4xl font-bold text-gray-900">General Manager Dashboard</h1>
+          <h1 className="text-4xl font-bold text-gray-900">GM Dashboard</h1>
           <p className="text-gray-500">
-            Overview of all Service Centers •{" "}
+            General Manager Dashboard - Overview of all Service Centers •{" "}
             {new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
           </p>
         </div>

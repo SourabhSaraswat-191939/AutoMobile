@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { usePermissions } from "@/hooks/usePermissions"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { AlertCircle, FileText, DollarSign, Search, TrendingUp, TrendingDown } from "lucide-react"
@@ -25,6 +26,7 @@ interface AdvisorOperation {
 
 export default function OperationsPage() {
   const { user } = useAuth()
+  const { hasPermission } = usePermissions()
   const [operationsData, setOperationsData] = useState<AdvisorOperation[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -45,26 +47,15 @@ export default function OperationsPage() {
         getApiUrl(`/api/service-manager/advisor-operations?uploadedBy=${user.email}&city=${user.city}&viewMode=${viewMode}`)
       )
 
-      if (response.ok) {
-        const result = await response.json()
-        const operationsArray = Array.isArray(result.data) ? result.data : []
-        
-        // Debug logging
-        console.log('Operations Data Response:', result)
-        console.log('Operations Array:', operationsArray)
-        if (operationsArray.length > 0) {
-          console.log('Sample Operation:', operationsArray[0])
-          console.log('Matched Operations Sample:', operationsArray[0].matchedOperations)
-        }
-        
-        setOperationsData(operationsArray)
-      } else {
-        const errorData = await response.json()
-        setError(`Failed to fetch operations data: ${errorData.message || response.statusText}`)
+      if (!response.ok) {
+        throw new Error("Failed to fetch operations data")
       }
+
+      const result = await response.json()
+      setOperationsData(Array.isArray(result.data) ? result.data : [])
     } catch (err) {
-      setError("Error fetching operations data")
-      console.error("Error fetching operations data:", err)
+      setError("Failed to load operations data. Please try again.")
+      console.error(err)
     } finally {
       setIsLoading(false)
     }
@@ -74,6 +65,21 @@ export default function OperationsPage() {
   useEffect(() => {
     fetchOperationsData()
   }, [viewMode, user?.email, user?.city])
+  
+  // Check permission first
+  if (!hasPermission("operations_report")) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white pb-8 flex items-center justify-center">
+        <Card className="max-w-md mx-auto">
+          <CardContent className="p-8 text-center">
+            <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-500" />
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Access Denied</h2>
+            <p className="text-gray-600">You don't have permission to view the Operations Report.</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   // Filter and sort operations data
   const filteredAndSortedData = operationsData

@@ -7,6 +7,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import serviceManagerRoutes from "./routes/serviceManagerRoutes.js";
+import rbacRoutes from "./routes/rbacRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -28,6 +29,7 @@ app.use(express.json());
 // Register routes
 app.use("/api", uploadRoutes);
 app.use("/api/service-manager", serviceManagerRoutes);
+app.use("/api/rbac", rbacRoutes);
 
 // Health check endpoint
 app.get("/", (req, res) => {

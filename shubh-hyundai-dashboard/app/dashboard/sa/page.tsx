@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { usePermissions } from "@/hooks/usePermissions"
 import { getAdvisorTargets, getAdvisorPerformance, type ServiceAdvisorTarget, type AdvisorPerformance } from "@/lib/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -19,10 +20,11 @@ import {
   Pie,
   Cell,
 } from "recharts"
-import { TrendingUp, Target, CheckCircle, Star } from "lucide-react"
+import { TrendingUp, Target, CheckCircle, Star, Shield, Loader2 } from "lucide-react"
 
 export default function ServiceAdvisorDashboard() {
   const { user } = useAuth()
+  const { hasPermission, isLoading: permissionsLoading } = usePermissions()
   const [targets, setTargets] = useState<ServiceAdvisorTarget[]>([])
   const [performance, setPerformance] = useState<AdvisorPerformance[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -41,6 +43,28 @@ export default function ServiceAdvisorDashboard() {
     }
     loadData()
   }, [user?.id])
+
+  // Check permissions first, then fallback to role
+  const canAccess = hasPermission('can_access_sa_dashboard') || user?.role === "service_advisor"
+  
+  if (permissionsLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+        <p className="ml-4 text-gray-600">Loading permissions...</p>
+      </div>
+    )
+  }
+
+  if (!canAccess) {
+    return (
+      <div className="text-center py-12">
+        <Shield className="h-12 w-12 text-red-600 mx-auto mb-4" />
+        <p className="text-lg font-semibold">Access Denied</p>
+        <p className="text-muted-foreground">You don't have permission to access the SA Dashboard</p>
+      </div>
+    )
+  }
 
   if (isLoading) {
     return <div className="text-center py-12">Loading dashboard...</div>
@@ -79,8 +103,8 @@ export default function ServiceAdvisorDashboard() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold">Service Advisor Dashboard</h1>
-        <p className="text-muted-foreground mt-2">Target tracking and performance metrics for {user?.name}</p>
+        <h1 className="text-3xl font-bold">SA Dashboard</h1>
+        <p className="text-muted-foreground mt-2">Service Advisor Dashboard - Target tracking and performance metrics for {user?.name}</p>
       </div>
 
       {/* KPI Cards */}
