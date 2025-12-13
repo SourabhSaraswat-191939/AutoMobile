@@ -71,27 +71,18 @@ export default function ROBillingPage() {
     setFilteredData(filtered)
   }, [searchTerm, data])
   
-  // Check permission first
-  if (!hasPermission("ro_billing_report")) {
+  // ✅ UPDATED: Single permission check - no need for dual checks
+  if (!hasPermission("ro_billing_report") && user?.role !== "service_manager") {
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white pb-8 flex items-center justify-center">
         <Card className="max-w-md mx-auto">
           <CardContent className="p-8 text-center">
             <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-500" />
-            <h2 className="text-xl font-semibent text-gray-900 mb-2">Access Denied</h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Access Denied</h2>
             <p className="text-gray-600">You don't have permission to view the RO Billing Report.</p>
+            <p className="text-sm text-gray-500 mt-2">Required: ro_billing_report permission or service_manager role</p>
           </CardContent>
         </Card>
-      </div>
-    )
-  }
-
-  if (user?.role !== "service_manager") {
-    return (
-      <div className="text-center py-12">
-        <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-        <p className="text-lg font-semibold">Access Denied</p>
-        <p className="text-muted-foreground">Only Service Managers can access this page</p>
       </div>
     )
   }

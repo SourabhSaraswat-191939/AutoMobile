@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { getISTDate } from "../utils/dateUtils.js";
 
 // Schema for storing Operations/Part Code CSV data
 const operationsPartDataSchema = new mongoose.Schema({
@@ -99,14 +100,14 @@ const operationsPartDataSchema = new mongoose.Schema({
   },
   last_used_date: String,
   
-  // Timestamps
+  // Timestamps in IST
   created_at: {
     type: Date,
-    default: Date.now
+    default: getISTDate
   },
   updated_at: {
     type: Date,
-    default: Date.now
+    default: getISTDate
   }
 });
 
@@ -122,9 +123,9 @@ operationsPartDataSchema.index({ supplier_code: 1, showroom_id: 1 });
 operationsPartDataSchema.index({ is_active: 1, showroom_id: 1 });
 operationsPartDataSchema.index({ created_at: -1 });
 
-// Update the updated_at field before saving
+// Update the updated_at field before saving (in IST)
 operationsPartDataSchema.pre('save', function(next) {
-  this.updated_at = new Date();
+  this.updated_at = getISTDate();
   next();
 });
 

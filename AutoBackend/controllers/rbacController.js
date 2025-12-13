@@ -134,7 +134,10 @@ export const getUsersByOrganization = async (req, res) => {
 
 export const getAllRoles = async (req, res) => {
   try {
-    const roles = await Role.find().select("-__v").lean();
+    // Get showroom_id from query params or use default
+    const showroom_id = req.query.showroom_id || "674c5b3b8f8a5c2d4e6f7891";
+    
+    const roles = await Role.find({ showroom_id }).select("-__v").lean();
 
     // Get permissions for each role
     const rolesWithPermissions = await Promise.all(
@@ -163,12 +166,13 @@ export const getAllRoles = async (req, res) => {
 
 export const createRole = async (req, res) => {
   try {
-    const { name, desc, permissions } = req.body;
+    const { name, desc, permissions, showroom_id } = req.body;
 
     // Create role
     const role = new Role({
       name,
-      desc
+      desc,
+      showroom_id: showroom_id || "674c5b3b8f8a5c2d4e6f7891" // Default showroom_id
     });
 
     await role.save();
@@ -245,7 +249,10 @@ export const deleteRole = async (req, res) => {
 
 export const getAllPermissions = async (req, res) => {
   try {
-    const permissions = await Permission.find().select("-__v").lean();
+    // Get showroom_id from query params or use default
+    const showroom_id = req.query.showroom_id || "674c5b3b8f8a5c2d4e6f7891";
+    
+    const permissions = await Permission.find({ showroom_id }).select("-__v").lean();
 
     res.status(200).json({
       success: true,
@@ -263,11 +270,12 @@ export const getAllPermissions = async (req, res) => {
 
 export const createPermission = async (req, res) => {
   try {
-    const { permission_key, name } = req.body;
+    const { permission_key, name, showroom_id } = req.body;
     
     const permission = new Permission({
       permission_key,
-      name
+      name,
+      showroom_id: showroom_id || "674c5b3b8f8a5c2d4e6f7891" // Default showroom_id
     });
     
     await permission.save();
@@ -325,9 +333,18 @@ export const seedPermissions = async (req, res) => {
       { permission_key: "operations_dashboard", name: "Operations Dashboard" },
       { permission_key: "warranty_dashboard", name: "Warranty Dashboard" },
       { permission_key: "service_booking_dashboard", name: "Service Booking Dashboard" },
+      { permission_key: "repair_order_list_dashboard", name: "Repair Order List Dashboard" },
       
       // Upload Permission (Single for all uploads - NO multiple uploads)
       { permission_key: "upload", name: "Upload" },
+      
+      // Specific Upload Permissions
+      { permission_key: "ro_billing_upload", name: "RO Billing Upload" },
+      { permission_key: "operations_upload", name: "Operations Upload" },
+      { permission_key: "warranty_upload", name: "Warranty Upload" },
+      { permission_key: "service_booking_upload", name: "Service Booking Upload" },
+      { permission_key: "repair_order_list_upload", name: "Repair Order List Upload" },
+      { permission_key: "average_upload", name: "Average Upload" },
       
       // Report Permissions
       { permission_key: "ro_billing_report", name: "RO Billing Report" },
@@ -352,18 +369,27 @@ export const seedPermissions = async (req, res) => {
 
     const createdPermissions = [];
     
+    // Get showroom_id from request body or use default
+    const showroom_id = req.body.showroom_id || "674c5b3b8f8a5c2d4e6f7891";
+    
     for (const permData of defaultPermissions) {
       try {
-        // Check if permission already exists
-        const existing = await Permission.findOne({ permission_key: permData.permission_key });
+        // Check if permission already exists for this showroom
+        const existing = await Permission.findOne({ 
+          permission_key: permData.permission_key,
+          showroom_id: showroom_id 
+        });
         if (!existing) {
-          const permission = new Permission(permData);
+          const permission = new Permission({
+            ...permData,
+            showroom_id: showroom_id
+          });
           await permission.save();
           createdPermissions.push(permission);
         }
       } catch (error) {
         // Skip duplicates
-        console.log(`Permission ${permData.permission_key} already exists`);
+        console.log(`Permission ${permData.permission_key} already exists for showroom ${showroom_id}`);
       }
     }
 

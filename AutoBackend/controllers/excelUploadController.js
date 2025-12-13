@@ -1,13 +1,16 @@
-import excelUploadService from '../services/excelUploadService.js';
+import fs from 'fs';
+import path from 'path';
+import mongoose from 'mongoose';
+import XLSX from 'xlsx';
 import UploadedFileMetaDetails from '../models/UploadedFileMetaDetails.js';
 import ROBillingData from '../models/ROBillingData.js';
 import WarrantyData from '../models/WarrantyData.js';
 import BookingListData from '../models/BookingListData.js';
 import OperationsPartData from '../models/OperationsPartData.js';
-import fs from 'fs';
-import path from 'path';
-import mongoose from 'mongoose';
-import XLSX from 'xlsx';
+import RepairOrderListData from '../models/RepairOrderListData.js';
+import excelUploadService from '../services/excelUploadService.js';
+import vinMatchingService from '../services/vinMatchingService.js';
+import { convertExcelDate } from '../utils/dateConverter.js';
 
 /**
  * Excel Upload Controller
@@ -186,6 +189,10 @@ const mapColumnNames = (excelRows, fileType) => {
       'Booking Number': 'booking_number',
       'Service Advisor': 'service_advisor',
       'B.T Date & Time': 'bt_date_time',
+      'BT Date & Time': 'bt_date_time',
+      'Booking Date': 'bt_date_time',
+      'Delivery Date': 'bt_date_time',
+      'Appointment Date': 'bt_date_time',
       'B.T No': 'bt_number',
       'Work Type': 'work_type',
       'Booking Status': 'booking_status',
@@ -194,6 +201,8 @@ const mapColumnNames = (excelRows, fileType) => {
       'Service Status': 'booking_status',
       'Current Status': 'booking_status',
       'VIN Number': 'vin_number',
+      'VIN': 'vin_number',
+      'Vin': 'vin_number',
       'Pickup Required': 'pickup_required',
       'Express Care': 'express_care',
       'Hyper Local Service': 'hyper_local_service',
@@ -228,20 +237,142 @@ const mapColumnNames = (excelRows, fileType) => {
       'Xcent': 'Xcent_Count',
       'Other': 'Other_Count',
       'Total in operation': 'Total_Operation_Count'
-    }
+    },
+    'repair_order_list': {
+      // Service Advisor variations
+      'Svc Adv.': 'svc_adv',
+      'Svc Adv': 'svc_adv',
+      'Service Advisor': 'svc_adv',
+      'Service_Advisor': 'svc_adv',
+      'svc_adv': 'svc_adv',
+      
+      // Work Type variations
+      'Work Type': 'work_type',
+      'Work_Type': 'work_type',
+      'work_type': 'work_type',
+      
+      // Model variations
+      'Model': 'model',
+      'model': 'model',
+      'Vehicle Model': 'model',
+      'Vehicle_Model': 'model',
+      
+      // Registration Number variations
+      'Reg. No': 'reg_no',
+      'Reg No': 'reg_no',
+      'Reg.No': 'reg_no',
+      'RegNo': 'reg_no',
+      'Registration No': 'reg_no',
+      'Registration Number': 'reg_no',
+      'Vehicle Reg No': 'reg_no',
+      'Vehicle_Reg_No': 'reg_no',
+      'reg_no': 'reg_no',
+      
+      // RO Status variations
+      'R/O Status': 'ro_status',
+      'RO Status': 'ro_status',
+      'RO_Status': 'ro_status',
+      'ro_status': 'ro_status',
+      'Status': 'ro_status',
+      
+      // RO Date variations
+      'R/O Date': 'ro_date',
+      'RO Date': 'ro_date',
+      'RO_Date': 'ro_date',
+      'ro_date': 'ro_date',
+      'Date': 'ro_date',
+      
+      // RO Number variations
+      'R/O No': 'ro_no',
+      'RO No': 'ro_no',
+      'RO_No': 'ro_no',
+      'ro_no': 'ro_no',
+      'RO Number': 'ro_no',
+      
+      // VIN variations
+      'VIN': 'vin',
+      'Vin': 'vin',
+      'vin': 'vin',
+      'VIN Number': 'vin',
+      'VIN_No': 'vin',
+      'Vehicle Identification Number': 'vin',
+      
+      // Additional optional fields
+      'Customer Name': 'customer_name',
+      'Customer_Name': 'customer_name',
+      'Technician Name': 'technician_name',
+      'Technician_Name': 'technician_name',
+      'Job Card Number': 'job_card_number',
+      'Job_Card_Number': 'job_card_number',
+      'Mileage': 'mileage',
+      'Estimated Amount': 'estimated_amount',
+      'Estimated_Amount': 'estimated_amount',
+      'Actual Amount': 'actual_amount',
+      'Actual_Amount': 'actual_amount',
+      'Promise Date': 'promise_date',
+      'Promise_Date': 'promise_date',
+      'Delivery Date': 'delivery_date',
+      'Delivery_Date': 'delivery_date',
+      'Vehicle Type': 'vehicle_make',
+      'Vehicle_Type': 'vehicle_make',
+      'Night Service': 'night_service',
+      'Night_Service': 'night_service'
+    },
   };
 
   const mappings = columnMappings[fileType] || {};
   
-  return excelRows.map(row => {
+  // Debug logging for booking_list
+  if (fileType === 'booking_list') {
+    console.log(`🔍 BookingList Column Mapping Debug:`);
+    console.log(`   Available mappings:`, Object.keys(mappings));
+    if (excelRows.length > 0) {
+      console.log(`   Excel columns:`, Object.keys(excelRows[0]));
+      // Check specific columns
+      Object.keys(excelRows[0]).forEach(col => {
+        const mapped = mappings[col];
+        console.log(`   "${col}" → ${mapped || 'UNMAPPED'}`);
+      });
+      
+      // Check if we have any Reg. No variations
+      const regNoVariations = ['Reg. No', 'Reg No', 'Registration No', 'Vehicle Reg No', 'Reg.No', 'RegNo'];
+      console.log(`🔍 Checking for Reg. No variations in Excel columns:`);
+      regNoVariations.forEach(variation => {
+        const found = Object.keys(excelRows[0]).includes(variation);
+        console.log(`   "${variation}": ${found ? '✅ FOUND' : '❌ NOT FOUND'}`);
+      });
+    }
+  }
+  
+  return excelRows.map((row, rowIndex) => {
     const mappedRow = {};
     
     Object.keys(row).forEach(originalKey => {
-      const mappedKey = mappings[originalKey] || originalKey;
+      // Try exact match first
+      let mappedKey = mappings[originalKey];
+      
+      // If no exact match, try case-insensitive and trimmed match
+      if (!mappedKey) {
+        const trimmedKey = originalKey.trim();
+        mappedKey = mappings[trimmedKey];
+        
+        // If still no match, try case-insensitive match
+        if (!mappedKey) {
+          const lowerKey = Object.keys(mappings).find(key => 
+            key.toLowerCase().trim() === trimmedKey.toLowerCase()
+          );
+          if (lowerKey) {
+            mappedKey = mappings[lowerKey];
+          }
+        }
+      }
+      
+      // Use mapped key or original key as fallback
+      const finalKey = mappedKey || originalKey;
       let value = row[originalKey];
       
       // Convert Boolean fields for booking_list
-      if (fileType === 'booking_list' && mappedKey === 'reminder_sent') {
+      if (fileType === 'booking_list' && finalKey === 'reminder_sent') {
         // Convert "Y"/"N" strings to boolean
         if (typeof value === 'string') {
           value = value.toUpperCase() === 'Y' || value.toUpperCase() === 'YES' || value === '1' || value === 'TRUE';
@@ -249,7 +380,7 @@ const mapColumnNames = (excelRows, fileType) => {
       }
       
       // Convert numeric fields for warranty
-      if (fileType === 'warranty' && ['labour_amount', 'part_amount', 'total_claim_amount', 'approved_amount'].includes(mappedKey)) {
+      if (fileType === 'warranty' && ['labour_amount', 'part_amount', 'total_claim_amount', 'approved_amount'].includes(finalKey)) {
         // Convert string numbers to actual numbers
         if (typeof value === 'string' && value.trim() !== '') {
           const numValue = parseFloat(value.replace(/[^\d.-]/g, '')); // Remove non-numeric characters except decimal and minus
@@ -259,8 +390,75 @@ const mapColumnNames = (excelRows, fileType) => {
         }
       }
       
-      mappedRow[mappedKey] = value;
+      // Convert Excel date fields to proper date format
+      if (['bill_date', 'claim_date', 'bt_date_time'].includes(finalKey)) {
+        if (value && value !== '') {
+          const convertedDate = convertExcelDate(value);
+          console.log(`📅 Date conversion: ${finalKey} = ${value} → ${convertedDate}`);
+          value = convertedDate;
+        }
+      }
+      
+      mappedRow[finalKey] = value;
     });
+    
+    // Special handling for booking_list: If Reg_No is missing, try to find it from other possible columns
+    if (fileType === 'booking_list' && !mappedRow.Reg_No) {
+      // Look for alternative registration number fields (exact matches first)
+      const possibleRegFields = [
+        'Vehicle Reg No', 'Registration No', 'Reg No', 'RegNo', 
+        'Vehicle Number', 'Registration Number', 'Reg.No', 'Reg. No',
+        'Vehicle Reg. No', 'Vehicle Registration No', 'Car Number',
+        'Registration', 'VehicleRegNo', 'Vehicle_Reg_No'
+      ];
+      
+      for (const field of possibleRegFields) {
+        if (row[field] && row[field].toString().trim() !== '') {
+          mappedRow.Reg_No = row[field];
+          console.log(`🔧 Row ${rowIndex + 1}: Found Reg_No in "${field}" column: "${row[field]}"`);
+          break;
+        }
+      }
+      
+      // If still no exact match, try fuzzy matching for any column that might contain registration numbers
+      if (!mappedRow.Reg_No) {
+        const allColumns = Object.keys(row);
+        for (const column of allColumns) {
+          const columnLower = column.toLowerCase();
+          const value = row[column];
+          
+          // Check if column name suggests it contains registration numbers
+          if ((columnLower.includes('reg') || columnLower.includes('vehicle') || columnLower.includes('number')) 
+              && value && value.toString().trim() !== '' 
+              && value.toString().length >= 6) { // Registration numbers are usually at least 6 characters
+            
+            // Basic validation: check if it looks like a registration number (contains letters and numbers)
+            const regNumberPattern = /^[A-Z0-9]{6,}$/i;
+            if (regNumberPattern.test(value.toString().replace(/\s+/g, ''))) {
+              mappedRow.Reg_No = value;
+              console.log(`🔧 Row ${rowIndex + 1}: Found Reg_No via fuzzy match in "${column}" column: "${value}"`);
+              break;
+            }
+          }
+        }
+      }
+      
+      // FALLBACK: If still no Reg_No found, use VIN as registration number for BookingList
+      if (!mappedRow.Reg_No && (mappedRow.vin_number || row.VIN)) {
+        const vinValue = mappedRow.vin_number || row.VIN;
+        if (vinValue && vinValue.toString().trim() !== '') {
+          mappedRow.Reg_No = vinValue;
+          console.log(`🔧 Row ${rowIndex + 1}: Using VIN as Reg_No fallback: "${vinValue}"`);
+        }
+      }
+      
+      // If still no Reg_No found, log all available columns for debugging
+      if (!mappedRow.Reg_No) {
+        console.log(`❌ Row ${rowIndex + 1}: No registration number or VIN found in any column.`);
+        console.log(`   Available columns:`, Object.keys(row));
+        console.log(`   Sample values:`, Object.keys(row).slice(0, 5).map(key => `${key}: "${row[key]}"`));
+      }
+    }
     
     return mappedRow;
   });
@@ -278,7 +476,8 @@ const validateExcelData = (excelRows, fileType) => {
     'ro_billing': ['RO_No'],
     'warranty': ['claim_number'],  // Changed from RO_No to claim_number to handle duplicates
     'booking_list': ['Reg_No'],
-    'operations_part': ['OP_Part_Code']  // This will be mapped from 'Total' column
+    'operations_part': ['OP_Part_Code'],  // This will be mapped from 'Total' column
+    'repair_order_list': ['ro_no', 'vin']  // Require both RO number and VIN for uniqueness
   };
 
   const required = requiredFields[fileType];
@@ -298,15 +497,17 @@ const validateExcelData = (excelRows, fileType) => {
   }
 
   // Check for empty or invalid required fields
-  const rowsWithEmptyRequired = excelRows.filter(row => {
+  const rowsWithEmptyRequired = excelRows.filter((row, index) => {
     return required.some(field => {
       const value = row[field];
       if (!value || value.toString().trim() === '') {
+        console.log(`❌ Row ${index + 1}: Empty ${field} = "${value}"`);
         return true; // Empty value
       }
       
       // Special validation for OP_Part_Code - reject "0" as it's not a valid code
       if (field === 'OP_Part_Code' && (value === '0' || value === 0)) {
+        console.log(`❌ Row ${index + 1}: Invalid ${field} = "${value}" (cannot be 0)`);
         return true; // Invalid OP_Part_Code
       }
       
@@ -314,17 +515,11 @@ const validateExcelData = (excelRows, fileType) => {
     });
   });
 
-  // Note: Duplicate validation removed - ExcelUploadService handles duplicates by updating existing records
-  // This allows for proper upsert behavior like RO Billing system
-  const uniqueKeyField = required[0]; // First required field is always the unique key
-  
-  console.log(`📊 Excel validation passed for ${uniqueKeyField} field`);
-  console.log(`   Total rows to process: ${excelRows.length}`);
-
-  // Check for empty/invalid fields and reject if found
   if (rowsWithEmptyRequired.length > 0) {
-    console.log(`❌ Found ${rowsWithEmptyRequired.length} rows with empty or invalid required fields`);
-    throw new Error(`Excel file contains ${rowsWithEmptyRequired.length} rows with empty or invalid ${uniqueKeyField} values. Please fix these rows and try again.`);
+    console.log(`❌ Found ${rowsWithEmptyRequired.length} rows with empty/invalid required fields`);
+    console.log(`📋 Required fields for ${fileType}:`, required);
+    console.log(`📋 Sample problematic rows:`, rowsWithEmptyRequired.slice(0, 3));
+    throw new Error(`Excel file contains ${rowsWithEmptyRequired.length} rows with empty or invalid ${required.join(', ')} values. Please fix these rows and try again.`);
   }
 
   console.log(`✅ Excel data validation passed for ${fileType}`);
@@ -372,7 +567,7 @@ export const uploadExcel = async (req, res) => {
     }
 
     // Validate file type
-    const validFileTypes = ['ro_billing', 'warranty', 'booking_list', 'operations_part'];
+    const validFileTypes = ['ro_billing', 'warranty', 'booking_list', 'operations_part', 'repair_order_list'];
     if (!validFileTypes.includes(file_type)) {
       fs.unlinkSync(req.file.path);
       
@@ -387,10 +582,55 @@ export const uploadExcel = async (req, res) => {
     // Parse Excel file
     let excelRows = await parseExcelFile(req.file.path);
     console.log(`📈 Parsed ${excelRows.length} rows from Excel`);
+    
+    if (excelRows.length > 0) {
+      console.log(`📋 Sample row before mapping:`, excelRows[0]);
+      console.log(`📋 Available columns:`, Object.keys(excelRows[0]));
+    }
 
     // Map column names to standardized format
     excelRows = mapColumnNames(excelRows, file_type);
     console.log(`🔄 Applied column name mapping for ${file_type}`);
+    
+    if (excelRows.length > 0) {
+      console.log(`📋 Sample row after mapping:`, excelRows[0]);
+      console.log(`📋 Mapped columns:`, Object.keys(excelRows[0]));
+      
+      // Special debug logging for booking_list
+      if (file_type === 'booking_list') {
+        console.log(`🔍 BookingList Debug:`);
+        console.log(`   - Reg_No: "${excelRows[0].Reg_No}"`);
+        console.log(`   - service_advisor: "${excelRows[0].service_advisor}"`);
+        console.log(`   - work_type: "${excelRows[0].work_type}"`);
+        console.log(`   - vin_number: "${excelRows[0].vin_number}"`);
+        console.log(`   - bt_date_time: "${excelRows[0].bt_date_time}"`);
+        console.log(`   - booking_status: "${excelRows[0].booking_status}"`);
+        
+        // Check all rows for Reg_No issues
+        const emptyRegNoRows = excelRows.filter((row, index) => {
+          const regNo = row.Reg_No;
+          const isEmpty = !regNo || regNo.toString().trim() === '';
+          if (isEmpty) {
+            console.log(`❌ Row ${index + 1}: Reg_No is empty or invalid: "${regNo}"`);
+          }
+          return isEmpty;
+        });
+        console.log(`📊 Found ${emptyRegNoRows.length} rows with empty Reg_No out of ${excelRows.length} total rows`);
+      }
+      
+      // Special debug logging for repair_order_list
+      if (file_type === 'repair_order_list') {
+        console.log(`🔍 RepairOrderList Debug:`);
+        console.log(`   - svc_adv: ${excelRows[0].svc_adv}`);
+        console.log(`   - work_type: ${excelRows[0].work_type}`);
+        console.log(`   - model: ${excelRows[0].model}`);
+        console.log(`   - reg_no: ${excelRows[0].reg_no}`);
+        console.log(`   - ro_status: ${excelRows[0].ro_status}`);
+        console.log(`   - ro_date: ${excelRows[0].ro_date}`);
+        console.log(`   - ro_no: ${excelRows[0].ro_no}`);
+        console.log(`   - vin: ${excelRows[0].vin}`);
+      }
+    }
 
     // Validate Excel data
     validateExcelData(excelRows, file_type);
@@ -419,6 +659,28 @@ export const uploadExcel = async (req, res) => {
     }
 
     if (result.success) {
+      // Trigger VIN matching after successful BookingList or RepairOrderList upload
+      try {
+        if (file_type === 'booking_list') {
+          console.log('🔗 Triggering VIN matching after BookingList upload');
+          await vinMatchingService.triggerVINMatchingAfterBookingUpload(
+            uploaded_by, 
+            fileData.city || 'Unknown', 
+            showroom_id
+          );
+        } else if (file_type === 'repair_order_list') {
+          console.log('🔗 Triggering VIN matching after RepairOrderList upload');
+          await vinMatchingService.triggerVINMatchingAfterRepairOrderUpload(
+            uploaded_by, 
+            fileData.city || 'Unknown', 
+            showroom_id
+          );
+        }
+      } catch (vinMatchingError) {
+        console.warn('⚠️ VIN matching failed but upload succeeded:', vinMatchingError.message);
+        // Don't fail the upload if VIN matching fails
+      }
+
       res.status(200).json({
         success: true,
         message: result.message,

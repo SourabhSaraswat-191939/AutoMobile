@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { usePermissions } from "@/hooks/usePermissions"
 import { getRoBillingReports, getServiceBookingReports, getWarrantyReports } from "@/lib/api"
 import { useParams } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,6 +24,7 @@ function remainingWorkingDaysFromToday(): number {
 
 export default function AdvisorPage() {
   const { user } = useAuth()
+  const { hasPermission } = usePermissions()
   const params = useParams() as { advisor?: string }
   const advisorName = params?.advisor ? decodeURIComponent(params.advisor) : null
   const [target, setTarget] = useState<any | null>(null)
@@ -102,10 +104,13 @@ export default function AdvisorPage() {
 
   const remainingDays = useMemo(() => remainingWorkingDaysFromToday(), [])
 
-  if (user?.role !== "service_manager") {
+  // ✅ UPDATED: Check advisor management permissions
+  if (!hasPermission('ro_billing_dashboard') && !hasPermission('operations_dashboard') && 
+      !hasPermission('target_report') && user?.role !== "service_manager") {
     return (
       <div className="text-center py-12">
-        <p className="text-lg">Advisor target view is for Service Managers</p>
+        <p className="text-lg font-semibold">Access Denied</p>
+        <p className="text-muted-foreground">You need dashboard or target permissions to view advisor details</p>
       </div>
     )
   }

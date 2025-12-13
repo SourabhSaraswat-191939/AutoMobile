@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 export function PermissionDebugger() {
   const { user } = useAuth()
-  const { permissions, isLoading, hasPermission, debug, testAPI, forceRefresh } = usePermissions()
+  const { permissions, isLoading, hasPermission, debug, testAPI, forceRefresh, clearCacheAndRefresh } = usePermissions()
 
   if (!user) return null
 
@@ -26,9 +26,9 @@ export function PermissionDebugger() {
         
         <div className="text-xs space-y-1">
           <p><strong>Dashboard Access:</strong></p>
-          <p>GM: {hasPermission('can_access_gm_dashboard') ? "✅" : "❌"}</p>
-          <p>SM: {hasPermission('can_access_sm_dashboard') ? "✅" : "❌"}</p>
-          <p>SA: {hasPermission('can_access_sa_dashboard') ? "✅" : "❌"}</p>
+          <p>GM: {hasPermission('manage_users') || hasPermission('manage_roles') ? "✅" : "❌"}</p>
+          <p>SM: {hasPermission('ro_billing_dashboard') || hasPermission('operations_dashboard') ? "✅" : "❌"}</p>
+          <p>SA: {hasPermission('dashboard') || hasPermission('overview') ? "✅" : "❌"}</p>
         </div>
 
         <div className="text-xs">
@@ -38,7 +38,7 @@ export function PermissionDebugger() {
           </div>
         </div>
 
-        <div className="flex gap-1">
+        <div className="flex gap-1 flex-wrap">
           <Button size="sm" onClick={debug} className="text-xs">
             Debug Console
           </Button>
@@ -47,6 +47,9 @@ export function PermissionDebugger() {
           </Button>
           <Button size="sm" onClick={forceRefresh} className="text-xs">
             Force Refresh
+          </Button>
+          <Button size="sm" onClick={clearCacheAndRefresh} className="text-xs bg-red-600 hover:bg-red-700">
+            Clear Cache
           </Button>
         </div>
       </CardContent>

@@ -4,6 +4,7 @@ import type React from "react"
 
 import { useEffect, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { usePermissions } from "@/hooks/usePermissions"
 import {
   getAllServiceAdvisors,
   getTargetAssignments,
@@ -17,6 +18,7 @@ import { AlertCircle, CheckCircle, Plus } from "lucide-react"
 
 export default function AssignTargetsPage() {
   const { user } = useAuth()
+  const { hasPermission } = usePermissions()
   const [advisors, setAdvisors] = useState<ServiceAdvisor[]>([])
   const [assignments, setAssignments] = useState<TargetAssignment[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -44,12 +46,14 @@ export default function AssignTargetsPage() {
     loadData()
   }, [])
 
-  if (user?.role !== "general_manager") {
+  // ✅ UPDATED: Check target assignment permissions
+  if (!hasPermission('gm_targets') && !hasPermission('target_report') && user?.role !== "general_manager") {
     return (
       <div className="text-center py-12">
         <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
         <p className="text-lg font-semibold">Access Denied</p>
-        <p className="text-muted-foreground">Only General Managers can assign targets</p>
+        <p className="text-muted-foreground">You need target management permissions to assign targets</p>
+        <p className="text-sm text-gray-500 mt-2">Required: gm_targets or target_report permission</p>
       </div>
     )
   }

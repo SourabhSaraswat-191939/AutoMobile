@@ -16,36 +16,44 @@ export default function DashboardPage() {
     // Wait for both auth and permissions to be ready
     if (authLoading || permissionsLoading) return
 
-    console.log("🚀 Dashboard routing - User:", user.email, "Role:", user.role, "Permissions:", permissions.length)
-    console.log("📋 Available permissions:", permissions)
+    // Check if user has NO permissions assigned (except General Managers only)
+    if (permissions.length === 0 && user.role !== "general_manager") {
+      return
+    }
 
-    // Smart routing - permissions are available immediately (role-based first)
-    if (hasPermission('can_access_gm_dashboard')) {
-      console.log("✅ Found GM permission, routing to GM Dashboard")
+    // Smart routing using database permissions
+    // Check for GM-level permissions OR general_manager role
+    if (hasPermission('manage_users') || hasPermission('manage_roles') || hasPermission('target_report') || user.role === "general_manager") {
       router.push("/dashboard/gm")
       return
     }
     
-    if (hasPermission('can_access_sm_dashboard')) {
-      console.log("✅ Found SM permission, routing to SM Dashboard")
+    // Check for SM-level permissions (any dashboard access)
+    if (hasPermission('ro_billing_upload') || hasPermission('operations_upload') || 
+        hasPermission('ro_billing_dashboard') || hasPermission('operations_dashboard') ||
+        hasPermission('warranty_dashboard') || hasPermission('warranty_upload') ||
+        hasPermission('service_booking_dashboard') || hasPermission('service_booking_upload')) {
       router.push("/dashboard/sm")
       return
     }
     
-    if (hasPermission('can_access_sa_dashboard')) {
-      console.log("✅ Found SA permission, routing to SA Dashboard")
+    // Basic access - route to SA dashboard
+    if (hasPermission('dashboard') || hasPermission('overview')) {
       router.push("/dashboard/sa")
       return
     }
 
-    // Fallback - user is authenticated, route based on role
-    console.log("→ Fallback routing based on role:", user.role)
-    if (user?.role === "general_manager") {
-      router.push("/dashboard/gm")
-    } else if (user?.role === "service_manager") {
-      router.push("/dashboard/sm")
-    } else {
-      router.push("/dashboard/sa")
+    // Fallback to role-based routing
+    switch (user?.role) {
+      case "general_manager":
+        router.push("/dashboard/gm")
+        break
+      case "service_manager":
+        router.push("/dashboard/sm")
+        break
+      default:
+        router.push("/dashboard/sa")
+        break
     }
 
   }, [user, router, permissions, authLoading, permissionsLoading, hasPermission])
@@ -58,6 +66,51 @@ export default function DashboardPage() {
   const getLoadingSubtext = () => {
     if (authLoading) return "Verifying your credentials"
     return "Preparing your workspace"
+  }
+
+  // ✅ FIXED: Show no permissions message immediately when 0 permissions detected (except General Managers only)
+  if (user && !authLoading && permissions.length === 0 && user.role !== "general_manager") {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-red-50 to-orange-100">
+        <div className="text-center max-w-lg mx-auto p-8">
+          <div className="mb-8">
+            <div className="w-24 h-24 mx-auto bg-red-100 rounded-full flex items-center justify-center">
+              <svg className="w-12 h-12 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H10m2-5V9m0 0V7m0 2h2m-2 0H10M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+          </div>
+          <h2 className="text-3xl font-bold text-red-800 mb-4">
+            No Role Assigned
+          </h2>
+          <p className="text-lg text-red-700 mb-6">
+            Currently, you have not been assigned any role.
+          </p>
+          <div className="bg-white/70 backdrop-blur-sm rounded-lg p-6 border border-red-200 mb-6">
+            <p className="text-red-800 font-semibold mb-2">
+              Please contact your admin for role assignment.
+            </p>
+            <p className="text-sm text-red-600">
+              Your administrator needs to assign you a role to access the system.
+            </p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <p className="text-sm text-gray-600 mb-2">
+              <strong>User:</strong> {user.email}
+            </p>
+            <p className="text-sm text-gray-600">
+              <strong>Role:</strong> {user.role || 'Not assigned'}
+            </p>
+          </div>
+          <button 
+            onClick={() => window.location.href = '/login'}
+            className="mt-6 px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+          >
+            Back to Login
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (

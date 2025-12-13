@@ -1,22 +1,32 @@
 "use client"
 
-import React, { useEffect, useState, useRef, useCallback } from "react"
+import React, { useState, useEffect, useCallback, useRef } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { usePermissions } from "@/hooks/usePermissions"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { TrendingUp, Upload, FileText, DollarSign, Clock, Shield, Calendar, BarChart3, Loader2, CheckCircle, Car, Wrench, Gauge, Activity, Users, AlertCircle, Search, CalendarIcon } from "lucide-react"
+import { TrendingUp, Upload, FileText, DollarSign, Clock, Shield, Calendar, BarChart3, Loader2, CheckCircle, Car, Wrench, Gauge, Activity, Users, AlertCircle, Search, CalendarIcon, RefreshCw } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { PieChart as RechartsPieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from "recharts"
 import { getApiUrl } from "@/lib/config"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 
-type DataType = "ro_billing" | "operations" | "warranty" | "service_booking" | "average"
+type DataType = "ro_billing" | "operations" | "warranty" | "service_booking" | "repair_order_list" | "average"
 
 const COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
+
+// Utility function to format currency with commas (Indian format)
+const formatCurrency = (amount: number): string => {
+  return `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+// Utility function to format numbers with commas
+const formatNumber = (num: number): string => {
+  return num.toLocaleString('en-IN')
+}
 
 interface DashboardData {
   dataType: string
@@ -36,6 +46,437 @@ interface AdvisorOperation {
     operation: string
     amount: number
   }>
+}
+
+// Repair Order List Section Component
+const RepairOrderListSection = ({ user }: { user: any }) => {
+  const [repairOrderData, setRepairOrderData] = useState<any[]>([])
+  const [filteredData, setFilteredData] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [uploadingFile, setUploadingFile] = useState(false)
+  const [dateFilter, setDateFilter] = useState<string>('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Fetch Repair Order List data
+  useEffect(() => {
+    const loadRepairOrderData = async () => {
+      if (!user?.email || !user?.city) return
+
+      setIsLoading(true)
+      setError(null)
+
+      try {
+        const response = await fetch(
+          getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=repair_order_list`)
+        )
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch Repair Order List data")
+        }
+
+        const result = await response.json()
+        const data = Array.isArray(result.data) ? result.data : []
+        setRepairOrderData(data)
+        setFilteredData(data) // Initialize filtered data
+      } catch (err) {
+        console.error("Error loading Repair Order List data:", err)
+        setError("Failed to load Repair Order List data.")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadRepairOrderData()
+  }, [user?.email, user?.city])
+
+  // Filter data by date when dateFilter changes
+  useEffect(() => {
+    console.log(`🔍 Date filter changed to: "${dateFilter}"`)
+    console.log(`📊 Total repair order data: ${repairOrderData.length} records`)
+    
+    // Show sample dates from the data for debugging
+    if (repairOrderData.length > 0) {
+      const sampleDates = repairOrderData.slice(0, 5).map(record => record.ro_date)
+      console.log(`📅 Sample R/O dates from data:`, sampleDates)
+    }
+    
+    if (!dateFilter) {
+      setFilteredData(repairOrderData)
+      console.log(`✅ No filter - showing all ${repairOrderData.length} records`)
+    } else {
+      const filtered = repairOrderData.filter(record => {
+        const roDate = record.ro_date
+        if (!roDate) return false
+        
+        try {
+          // Handle different date formats
+          let recordDate = ''
+          if (typeof roDate === 'string') {
+            // Check if it's an Excel serial number (like "46003.61729166667")
+            const excelSerialMatch = roDate.match(/^(\d+)(\.\d+)?$/)
+            if (excelSerialMatch) {
+              // Convert Excel serial number to date
+              const serialNumber = parseFloat(roDate)
+              // Excel epoch starts from January 1, 1900 (but Excel incorrectly treats 1900 as a leap year)
+              const excelEpoch = new Date(1899, 11, 30) // December 30, 1899
+              const convertedDate = new Date(excelEpoch.getTime() + serialNumber * 24 * 60 * 60 * 1000)
+              recordDate = convertedDate.toISOString().split('T')[0]
+              console.log(`📅 Excel serial converted: "${roDate}" → "${recordDate}"`)
+            } else {
+              // Check if it's in DD-MM-YYYY format (like "01-12-2025")
+              const ddmmyyyyMatch = roDate.match(/^(\d{2})-(\d{2})-(\d{4})$/)
+              if (ddmmyyyyMatch) {
+                const [, day, month, year] = ddmmyyyyMatch
+                recordDate = `${year}-${month}-${day}` // Convert to YYYY-MM-DD
+                console.log(`📅 DD-MM-YYYY converted: "${roDate}" → "${recordDate}"`)
+              } else {
+                // Try parsing as standard date
+                const parsedDate = new Date(roDate)
+                if (!isNaN(parsedDate.getTime())) {
+                  recordDate = parsedDate.toISOString().split('T')[0]
+                  console.log(`📅 Standard date parsed: "${roDate}" → "${recordDate}"`)
+                } else {
+                  // Try to extract YYYY-MM-DD from string
+                  const yyyymmddMatch = roDate.match(/(\d{4})-(\d{2})-(\d{2})/)
+                  if (yyyymmddMatch) {
+                    recordDate = `${yyyymmddMatch[1]}-${yyyymmddMatch[2]}-${yyyymmddMatch[3]}`
+                    console.log(`📅 YYYY-MM-DD extracted: "${roDate}" → "${recordDate}"`)
+                  }
+                }
+              }
+            }
+          } else if (roDate instanceof Date) {
+            recordDate = roDate.toISOString().split('T')[0]
+            console.log(`📅 Date object converted: "${roDate}" → "${recordDate}"`)
+          }
+          
+          const matches = recordDate === dateFilter
+          if (matches) {
+            console.log(`✅ MATCH FOUND: "${roDate}" → "${recordDate}" matches filter "${dateFilter}"`)
+          }
+          return matches
+        } catch (error) {
+          console.warn('Date parsing error for:', roDate, error)
+          return false
+        }
+      })
+      setFilteredData(filtered)
+      console.log(`🎯 Filtered results: ${filtered.length} records match date "${dateFilter}"`)
+      
+      if (filtered.length === 0) {
+        console.log(`❌ No matches found. Try these dates from your data:`)
+        const uniqueDates = [...new Set(repairOrderData.map(record => {
+          const roDate = record.ro_date
+          console.log(`🔍 Processing date: "${roDate}" (type: ${typeof roDate})`)
+          if (typeof roDate === 'string') {
+            // Check if it's an Excel serial number (like "46003.61729166667")
+            const excelSerialMatch = roDate.match(/^(\d+)(\.\d+)?$/)
+            if (excelSerialMatch) {
+              // Convert Excel serial number to date
+              const serialNumber = parseFloat(roDate)
+              const excelEpoch = new Date(1899, 11, 30) // December 30, 1899
+              const convertedDate = new Date(excelEpoch.getTime() + serialNumber * 24 * 60 * 60 * 1000)
+              const convertedDateStr = convertedDate.toISOString().split('T')[0]
+              console.log(`✅ Converted: "${roDate}" → "${convertedDateStr}"`)
+              return convertedDateStr
+            } else {
+              // Check if it's in DD-MM-YYYY format
+              const ddmmyyyyMatch = roDate.match(/^(\d{2})-(\d{2})-(\d{4})$/)
+              if (ddmmyyyyMatch) {
+                const [, day, month, year] = ddmmyyyyMatch
+                const convertedDate = `${year}-${month}-${day}`
+                console.log(`✅ Converted: "${roDate}" → "${convertedDate}"`)
+                return convertedDate
+              } else {
+                console.log(`❌ No match for: "${roDate}"`)
+              }
+            }
+          }
+          return null
+        }).filter(Boolean))]
+        console.log(`📅 Available dates in YYYY-MM-DD format:`, uniqueDates.slice(0, 10))
+        console.log(`📊 Total unique dates found: ${uniqueDates.length}`)
+      }
+    }
+  }, [repairOrderData, dateFilter])
+
+  // Handle file upload
+  const handleFileUpload = async (file: File) => {
+    if (!user?.email || !user?.city) return
+
+    setUploadingFile(true)
+
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
+      formData.append("uploadedBy", user.email)
+      formData.append("city", user.city)
+
+      // Add required fields for case-based upload
+      formData.append("org_id", "674c5b3b8f8a5c2d4e6f7890")
+      formData.append("showroom_id", "674c5b3b8f8a5c2d4e6f7891")
+
+      const response = await fetch(
+        getApiUrl("/api/service-manager/repair-order-list/upload"),
+        {
+          method: "POST",
+          body: formData,
+        }
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || "Upload failed")
+      }
+
+      const result = await response.json()
+
+      alert(`✅ Repair Order List upload successful using ${result.uploadCase}!
+Records: ${result.insertedCount} inserted, ${result.updatedCount} updated
+Upload Time: ${result.uploadDate}`)
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ""
+      }
+
+      // Refresh data
+      const refreshResponse = await fetch(
+        getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=repair_order_list`)
+      )
+
+      if (refreshResponse.ok) {
+        const refreshResult = await refreshResponse.json()
+        setRepairOrderData(Array.isArray(refreshResult.data) ? refreshResult.data : [])
+      }
+    } catch (err: any) {
+      console.error("Upload error:", err)
+      alert(`❌ Upload failed: ${err.message}`)
+    } finally {
+      setUploadingFile(false)
+    }
+  }
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      handleFileUpload(file)
+    }
+  }
+
+  // Group data by Service Advisor → Work Type → Status
+  const groupedData = filteredData
+    .filter(record => {
+      // Filter out unwanted work types
+      const workType = (record.work_type || '').toLowerCase()
+      return !workType.includes('accidental repair') && !workType.includes('accessaries')
+    })
+    .reduce((acc: any, record: any) => {
+    const advisor = record.svc_adv || 'Unknown'
+    const workType = record.work_type || 'Unknown'
+    const status = record.ro_status || 'Unknown'
+
+    if (!acc[advisor]) {
+      acc[advisor] = {}
+    }
+    if (!acc[advisor][workType]) {
+      acc[advisor][workType] = {}
+    }
+    if (!acc[advisor][workType][status]) {
+      acc[advisor][workType][status] = []
+    }
+
+    // Include all statuses, not just Open
+    acc[advisor][workType][status].push({
+      model: record.model || '',
+      reg_no: record.reg_no || '',
+      ro_no: record.ro_no || '',
+      vin: record.vin || '',
+      ro_date: record.ro_date || ''
+    })
+
+    return acc
+  }, {})
+
+  return (
+    <Card className="border-2 border-indigo-200 bg-gradient-to-br from-white to-indigo-50/30 shadow-lg">
+      <CardHeader className="bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-indigo-200">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-indigo-100 p-2">
+              <FileText className="h-5 w-5 text-indigo-600" />
+            </div>
+            <div>
+              <CardTitle className="text-xl text-gray-900">Repair Order List</CardTitle>
+              <CardDescription>Service Advisor → Work Type → Status breakdown with date filtering</CardDescription>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Badge variant="secondary" className="bg-indigo-100 text-indigo-800">
+              {filteredData.length} / {repairOrderData.length} Records
+            </Badge>
+            <div className="flex items-center gap-2">
+              <label htmlFor="date-filter" className="text-sm font-medium text-gray-700">
+                Filter by R/O Date:
+              </label>
+              <input
+                id="date-filter"
+                type="date"
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              {dateFilter && (
+                <Button
+                  onClick={() => setDateFilter('')}
+                  variant="outline"
+                  size="sm"
+                  className="text-xs"
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+            <div>
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept=".xlsx,.xls"
+                onChange={handleFileChange}
+                disabled={uploadingFile}
+                className="hidden"
+                id="repair-order-file-input"
+              />
+              <label htmlFor="repair-order-file-input">
+                <Button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingFile}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                  size="sm"
+                >
+                  {uploadingFile ? (
+                    <>
+                      <div className="animate-spin mr-2 h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="mr-2 h-4 w-4" />
+                      Upload Excel
+                    </>
+                  )}
+                </Button>
+              </label>
+            </div>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-6">
+        {isLoading ? (
+          <div className="text-center py-12">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-100 mb-4">
+              <div className="animate-spin">
+                <FileText className="h-6 w-6 text-indigo-600" />
+              </div>
+            </div>
+            <p className="text-gray-600">Loading Repair Order List...</p>
+          </div>
+        ) : error ? (
+          <div className="bg-red-50 border border-red-300 rounded-lg p-6 text-center">
+            <AlertCircle className="h-10 w-10 text-red-600 mx-auto mb-3" />
+            <p className="text-red-800 font-semibold">{error}</p>
+          </div>
+        ) : Object.keys(groupedData).length === 0 ? (
+          <div className="bg-blue-50 border border-blue-300 rounded-lg p-8 text-center">
+            <FileText className="h-12 w-12 text-blue-600 mx-auto mb-4" />
+            <p className="text-gray-800 font-semibold text-lg">No Repair Order Data</p>
+            <p className="text-gray-600 text-sm mt-2">Please upload a Repair Order List Excel file to see the data.</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {Object.entries(groupedData).map(([advisor, workTypes]: [string, any]) => (
+              <Card key={advisor} className="border border-gray-200">
+                <CardHeader className="bg-gradient-to-r from-indigo-50 to-white py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center">
+                      <span className="text-indigo-700 font-bold text-sm">
+                        {advisor.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <CardTitle className="text-lg text-gray-900">{advisor}</CardTitle>
+                    <Badge variant="outline" className="bg-indigo-50 text-indigo-700">
+                      Service Advisor
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-4">
+                  {Object.entries(workTypes).map(([workType, statuses]: [string, any]) => (
+                    <div key={workType} className="mb-6 last:mb-0">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-6 h-6 rounded bg-purple-100 flex items-center justify-center">
+                          <Wrench className="h-3 w-3 text-purple-600" />
+                        </div>
+                        <h4 className="font-semibold text-gray-800">{workType}</h4>
+                        <Badge variant="outline" className="bg-purple-50 text-purple-700 text-xs">
+                          Work Type
+                        </Badge>
+                      </div>
+                      
+                      {Object.entries(statuses)
+                        .filter(([status, records]: [string, any]) => records.length > 0) // Only show statuses with records
+                        .map(([status, records]: [string, any]) => (
+                        <div key={status} className="ml-8 mb-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-4 h-4 rounded bg-green-100 flex items-center justify-center">
+                              <CheckCircle className="h-2 w-2 text-green-600" />
+                            </div>
+                            <h5 className="font-medium text-gray-700">{status} - {records.length}</h5>
+                            <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">
+                              {records.length} Records
+                            </Badge>
+                          </div>
+                          
+                          {/* Show detailed table only for Open status */}
+                          {status.toLowerCase() === 'open' && (
+                            <div className="ml-6 overflow-x-auto">
+                              <table className="w-full text-sm border border-gray-200 rounded-lg">
+                                  <thead>
+                                    <tr className="bg-gray-50 border-b">
+                                      <th className="text-left py-2 px-3 font-medium text-gray-700">Model</th>
+                                      <th className="text-left py-2 px-3 font-medium text-gray-700">Reg No</th>
+                                      <th className="text-left py-2 px-3 font-medium text-gray-700">R/O No</th>
+                                      <th className="text-left py-2 px-3 font-medium text-gray-700">R/O Date</th>
+                                      <th className="text-left py-2 px-3 font-medium text-gray-700">VIN</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {records.map((record: any, idx: number) => (
+                                      <tr key={idx} className="border-b hover:bg-green-50">
+                                        <td className="py-2 px-3">{record.model}</td>
+                                        <td className="py-2 px-3">{record.reg_no}</td>
+                                        <td className="py-2 px-3 font-medium">{record.ro_no}</td>
+                                        <td className="py-2 px-3 text-blue-600">{record.ro_date}</td>
+                                        <td className="py-2 px-3 text-xs text-gray-600">{record.vin}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
 }
 
 // Advisor Operations Section Component
@@ -123,8 +564,12 @@ const AdvisorOperationsSection = ({ user }: { user: any }) => {
       formData.append("city", user.city)
       formData.append("dataDate", selectedDate)
 
+      // Add required fields for case-based upload
+      formData.append("org_id", "674c5b3b8f8a5c2d4e6f7890") // Default org_id
+      formData.append("showroom_id", "674c5b3b8f8a5c2d4e6f7891") // Default showroom_id
+
       const response = await fetch(
-        getApiUrl("/api/service-manager/advisor-operations/upload"),
+        getApiUrl("/api/service-manager/advisor-operations/upload-with-cases"),
         {
           method: "POST",
           body: formData,
@@ -138,7 +583,8 @@ const AdvisorOperationsSection = ({ user }: { user: any }) => {
 
       const result = await response.json()
 
-      alert(`✅ Upload successful!\n\nAdvisor: ${advisorName}\nDate: ${selectedDate}\nMatched Operations: ${result.matchedCount}\nTotal Amount: ₹${result.totalMatchedAmount.toLocaleString()}`)
+      // Enhanced success message with case information
+      alert(`✅ Upload successful using ${result.uploadCase}!\n\nAdvisor: ${advisorName}\nDate: ${selectedDate}\nMatched Operations: ${result.matchedCount}\nTotal Amount: ₹${result.totalMatchedAmount.toLocaleString()}\n\nCase Details:\n- Inserted: ${result.insertedCount} records\n- Updated: ${result.updatedCount} records\n- Upload Time: ${result.uploadDate}`)
 
       if (fileInputRefs.current[advisorName]) {
         fileInputRefs.current[advisorName]!.value = ""
@@ -517,73 +963,54 @@ export default function SMDashboard() {
   const [showOverall, setShowOverall] = useState<boolean>(false)
   const [hoveredAdvisor, setHoveredAdvisor] = useState<string | null>(null)
   const [showWithTax, setShowWithTax] = useState<boolean>(false)
-  const [dataFetched, setDataFetched] = useState<Set<string>>(new Set())
-  
-  // Clear cache immediately to fetch all records (temporary for this fix)
-  useEffect(() => {
-    setDataFetched(new Set())
-    // Force a refresh by clearing any cached data
-    setDashboardData(null)
-    // Clear only dashboard-specific cache, not authentication
-    if (typeof window !== 'undefined') {
-      // Only clear dashboard-specific cache keys, not auth
-      const keysToRemove = []
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key && (key.includes('dashboard') || key.includes('sm_') || key.includes('cache'))) {
-          keysToRemove.push(key)
-        }
-      }
-      keysToRemove.forEach(key => localStorage.removeItem(key))
-      
-      // Clear session storage dashboard cache
-      const sessionKeysToRemove = []
-      for (let i = 0; i < sessionStorage.length; i++) {
-        const key = sessionStorage.key(i)
-        if (key && (key.includes('dashboard') || key.includes('sm_') || key.includes('cache'))) {
-          sessionKeysToRemove.push(key)
-        }
-      }
-      sessionKeysToRemove.forEach(key => sessionStorage.removeItem(key))
-    }
-    console.log('🔄 Dashboard cache cleared, forcing fresh data fetch')
-  }, [])
+  const [workTypeDataFetched, setWorkTypeDataFetched] = useState(false)
+  const fetchedDataTypes = useRef<Set<string>>(new Set())
 
   // Function definitions (before useEffect hooks) - memoized to prevent infinite re-renders
   const fetchDashboardData = useCallback(async (dataType: DataType) => {
     if (!user?.email || !user?.city) return
-    
-    // Check if this data type has already been fetched recently
+
+    // Prevent duplicate fetches - but allow refresh when explicitly cleared
     const fetchKey = `${dataType}-${user.email}`
-    // Temporarily disable duplicate call prevention to force fresh data
-    // if (dataFetched.has(fetchKey)) {
-    //   console.log(`⏭️ Skipping duplicate API call for ${dataType}`)
-    //   return
-    // }
+    if (fetchedDataTypes.current.has(fetchKey)) {
+      console.log('⏭️ Skipping fetch - already loaded:', fetchKey)
+      return
+    }
+    
+    console.log('🚀 Fetching fresh data for:', fetchKey)
+    fetchedDataTypes.current.add(fetchKey)
 
     setIsLoading(true)
     setError(null)
 
     try {
-      const apiUrl = getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=${dataType}`)
-      console.log('🔗 Making API call to:', apiUrl)
-      console.log('📧 User email:', user.email)
-      console.log('🏙️ User city:', user.city)
-      console.log('📊 Data type:', dataType)
+      let apiUrl: string
+      
+      // Use specialized BookingList API for service_booking with VIN matching
+      if (dataType === 'service_booking') {
+        // Use the actual showroom_id from the database: 64f8a1b2c3d4e5f6a7b8c9d1
+        const userShowroomId = '64f8a1b2c3d4e5f6a7b8c9d1'; // Updated to match database records
+        apiUrl = getApiUrl(`/api/booking-list/dashboard?uploadedBy=${user.email}&city=${user.city}&showroom_id=${userShowroomId}`)
+        console.log('🔗 Fetching BookingList with VIN matching:', dataType)
+        console.log('🏢 Using showroom_id:', userShowroomId)
+        console.log('👤 User email:', user.email)
+        console.log('🏙️ User city:', user.city)
+      } else {
+        apiUrl = getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=${dataType}`)
+        console.log('🔗 Fetching:', dataType)
+      }
       
       const response = await fetch(apiUrl)
 
       if (!response.ok) {
-        throw new Error("Failed to fetch data")
+        const errorText = await response.text()
+        console.error('❌ API Error:', response.status, errorText)
+        throw new Error(`Failed to fetch data: ${response.status} ${response.statusText}`)
       }
 
       const data = await response.json()
-      
-      console.log('✅ SM Dashboard Data Received:', data)
-      console.log('📈 Data Type:', dataType)
-      console.log('📊 Summary:', data?.summary)
-      console.log('📋 Data count:', data?.count)
-      console.log('📁 Uploads count:', data?.uploads?.length)
+      console.log('✅ Loaded:', dataType, '- Records:', data?.summary?.totalBookings || data?.count)
+      console.log('📊 Full API Response:', data)
       
       // Ensure data has the correct structure
       if (data && typeof data === 'object') {
@@ -591,9 +1018,6 @@ export default function SMDashboard() {
           ...data,
           data: Array.isArray(data.data) ? data.data : []
         })
-        
-        // Mark this data type as fetched
-        setDataFetched(prev => new Set(prev).add(fetchKey))
       } else {
         setDashboardData(null)
       }
@@ -603,50 +1027,66 @@ export default function SMDashboard() {
     } finally {
       setIsLoading(false)
     }
-  }, [user?.email, user?.city, dataFetched])
+  }, [user?.email, user?.city])
 
   // ALL useEffect hooks must be declared here (before any conditional returns)
   
-  // Check if user has permission to access SM dashboard
+  // ✅ UPDATED: Check database permissions for SM dashboard access
   useEffect(() => {
-    if (!hasPermission('can_access_sm_dashboard')) {
+    if (!hasPermission('ro_billing_dashboard') && !hasPermission('operations_dashboard') && 
+        !hasPermission('ro_billing_upload') && !hasPermission('operations_upload') &&
+        !hasPermission('warranty_dashboard') && !hasPermission('service_booking_dashboard') &&
+        !hasPermission('repair_order_list_dashboard')) {
       console.log('❌ User does not have permission to access SM dashboard')
       // Don't redirect automatically to prevent infinite loops
       // Just show the access denied UI instead
-      return
     }
   }, [hasPermission])
 
   // Clear fetch cache when user changes
   useEffect(() => {
-    setDataFetched(new Set())
+    fetchedDataTypes.current.clear()
+    setWorkTypeDataFetched(false)
   }, [user?.email])
 
   // Fetch dashboard data when selectedDataType changes or component mounts
   useEffect(() => {
-    if (selectedDataType && user?.email && user?.city && !isLoading && hasPermission('can_access_sm_dashboard')) {
-      // Add a small delay to prevent rapid successive calls
-      const timeoutId = setTimeout(() => {
-        fetchDashboardData(selectedDataType)
-      }, 100)
+    if (selectedDataType && user?.email && user?.city && !isLoading && 
+        (hasPermission('ro_billing_dashboard') || hasPermission('operations_dashboard') || 
+         hasPermission('warranty_dashboard') || hasPermission('service_booking_dashboard') || 
+         hasPermission('repair_order_list_dashboard') || hasPermission('dashboard'))) {
       
-      return () => clearTimeout(timeoutId)
+      // Clear previous data and force refresh when switching dashboard types
+      console.log('🔄 Dashboard type changed to:', selectedDataType)
+      setDashboardData(null)
+      setError(null)
+      
+      // Remove from cache to force fresh fetch (use same key format as fetchDashboardData)
+      const fetchKey = `${selectedDataType}-${user.email}`
+      fetchedDataTypes.current.delete(fetchKey)
+      console.log('🗑️ Cleared cache for:', fetchKey)
+      
+      // Fetch new data
+      fetchDashboardData(selectedDataType)
     }
-  }, [selectedDataType, user?.email, user?.city]) // Add user dependencies to trigger on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDataType, user?.email, user?.city])
 
   // Fetch work type data for Average dashboard - only once when component mounts
   useEffect(() => {
     const fetchWorkTypeData = async () => {
-      if (!user?.email || !user?.city) {
-        console.log('⚠️ User email or city not available for work type data fetch')
+      if (!user?.email || !user?.city) return
+
+      // ✅ Check permissions before making API call
+      if (!hasPermission('ro_billing_dashboard') && !hasPermission('operations_dashboard') && 
+          !hasPermission('ro_billing_upload') && !hasPermission('operations_upload') && 
+          !hasPermission('warranty_dashboard') && !hasPermission('service_booking_dashboard') && 
+          !hasPermission('dashboard')) {
         return
       }
       
       try {
-        console.log('🔄 Fetching work type data for user:', user.email)
-        const apiUrl = getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=service_booking`)
-        console.log('🔗 Work type API URL:', apiUrl)
-        
+        const apiUrl = getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=average`)
         const response = await fetch(apiUrl)
         
         if (response.ok) {
@@ -667,27 +1107,24 @@ export default function SMDashboard() {
           ])
         }
       } catch (error) {
-        console.error('❌ Error fetching work type data:', error)
-        console.error('❌ Error details:', {
-          userEmail: user?.email,
-          userCity: user?.city,
-          errorMessage: error instanceof Error ? error.message : 'Unknown error'
-        })
+        console.error('Error loading work type data')
         // Set default work type data on error
         setWorkTypeData([
           { name: 'Paid Service', value: 0, color: '#3b82f6', description: 'Regular paid services' },
           { name: 'Free Service', value: 0, color: '#10b981', description: 'Complimentary services' },
           { name: 'Running Repair', value: 0, color: '#f59e0b', description: 'Ongoing repairs' },
-          { name: 'Accidental Repair', value: 0, color: '#ef4444', description: 'Accident-related repairs' }
         ])
       }
     }
 
     // Only fetch once when user data is available
-    if (user?.email && user?.city) {
+    if (user?.email && user?.city && !workTypeDataFetched && 
+        (hasPermission('ro_billing_dashboard') || hasPermission('operations_dashboard') || 
+         hasPermission('warranty_dashboard') || hasPermission('service_booking_dashboard') || hasPermission('dashboard'))) {
       fetchWorkTypeData()
+      setWorkTypeDataFetched(true)
     }
-  }, []) // Empty dependency array - only run once
+  }, [user?.email, user?.city, workTypeDataFetched])
 
   // Set default to latest date for RO Billing
   useEffect(() => {
@@ -708,8 +1145,11 @@ export default function SMDashboard() {
     }
   }, [selectedDataType, dashboardData, selectedDate])
 
-  // Show loading or access denied if no permission
-  if (!hasPermission('can_access_sm_dashboard')) {
+  // ✅ UPDATED: Check permissions only - all service managers need proper permissions
+  if (!hasPermission('ro_billing_dashboard') && !hasPermission('operations_dashboard') && 
+      !hasPermission('ro_billing_upload') && !hasPermission('operations_upload') && 
+      !hasPermission('warranty_dashboard') && !hasPermission('service_booking_dashboard') && 
+      !hasPermission('dashboard')) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Card className="w-96">
@@ -718,10 +1158,10 @@ export default function SMDashboard() {
           </CardHeader>
           <CardContent className="text-center">
             <p className="text-gray-600 mb-4">
-              You don't have permission to access the Service Manager Dashboard.
+              You have not been assigned any permissions.
             </p>
             <p className="text-sm text-gray-500 mb-6">
-              Please contact your administrator to request access.
+              Please reach out to your admin for permissions.
             </p>
             <Button 
               onClick={() => router.push('/dashboard')}
@@ -833,7 +1273,37 @@ export default function SMDashboard() {
     }
 
     if (!dashboardData) {
-      return null
+      return (
+        <Card className="border-gray-200 bg-gradient-to-br from-gray-50 to-white">
+          <CardContent className="p-12 text-center">
+            <FileText className="h-16 w-16 mx-auto mb-4 text-gray-400" />
+            <h3 className="text-xl font-semibold text-gray-700 mb-2">No Data Available</h3>
+            <p className="text-gray-500 mb-4">
+              No data found for the selected type. This could mean:
+            </p>
+            <div className="text-left max-w-md mx-auto space-y-2 text-sm text-gray-600">
+              <p>• No files have been uploaded yet</p>
+              <p>• Data is still being processed</p>
+              <p>• You may need to refresh the page</p>
+            </div>
+            <Button 
+              onClick={() => {
+                console.log('🔄 Refresh from empty state')
+                fetchedDataTypes.current.clear()
+                setDashboardData(null)
+                if (selectedDataType) {
+                  fetchDashboardData(selectedDataType)
+                }
+              }}
+              className="mt-6"
+              variant="outline"
+            >
+              <Activity className="mr-2 h-4 w-4" />
+              Refresh Data
+            </Button>
+          </CardContent>
+        </Card>
+      )
     }
 
     // Render based on data type
@@ -1131,7 +1601,18 @@ export default function SMDashboard() {
       return <AdvisorOperationsSection user={user} />
     }
 
+    // For repair order list, show the repair order list interface
+    if (selectedDataType === "repair_order_list") {
+      return <RepairOrderListSection user={user} />
+    }
+
     if (!dashboardData?.data || dashboardData.data.length === 0) {
+      console.log('❌ No data condition triggered:')
+      console.log('   dashboardData:', dashboardData)
+      console.log('   dashboardData?.data:', dashboardData?.data)
+      console.log('   data length:', dashboardData?.data?.length)
+      console.log('   selectedDataType:', selectedDataType)
+      
       return (
         <Card className="border-gray-200">
           <CardContent className="p-12 text-center">
@@ -1149,11 +1630,12 @@ export default function SMDashboard() {
       )
     }
 
-    const dataTypeLabels: Record<string, string> = {
+    const dataTypeLabels: Record<Exclude<DataType, "average">, string> = {
       ro_billing: "RO Billing",
       operations: "Operations",
       warranty: "Warranty",
       service_booking: "Service Booking",
+      repair_order_list: "Repair Order List",
     }
 
     // Calculate metrics for cards
@@ -1211,17 +1693,23 @@ export default function SMDashboard() {
         const statusBreakdown = dashboardData.summary?.statusBreakdown || []
         
         const completed = statusBreakdown.find(s => s.status?.toLowerCase() === "close")?.count || 0
-        const pending = statusBreakdown.find(s => s.status?.toLowerCase() === "in progress")?.count || 0
-        const open = statusBreakdown.find(s => s.status?.toLowerCase() === "open")?.count || 0
+        const pending = statusBreakdown.find(s => s.status?.toLowerCase() === "open")?.count || 0
         const cancelled = statusBreakdown.find(s => s.status?.toLowerCase() === "cancel")?.count || 0
         
-        // Work type counts
-        const paidService = data.filter((row: any) => row.workType?.toLowerCase().includes("paid")).length
-        const freeService = data.filter((row: any) => row.workType?.toLowerCase().includes("free")).length
-        const runningRepair = data.filter((row: any) => row.workType?.toLowerCase().includes("running")).length
+        return { completed, pending, cancelled, count: data.length }
+      } else if (selectedDataType === "repair_order_list") {
+        // Use API summary data for repair order list
+        const statusBreakdown = dashboardData.summary?.statusBreakdown || []
+        const advisorBreakdown = dashboardData.summary?.advisorBreakdown || []
+        const workTypeBreakdown = dashboardData.summary?.workTypeBreakdown || []
         
-        return { completed, pending, open, cancelled, paidService, freeService, runningRepair, count: data.length }
+        const openOrders = statusBreakdown.find(s => s.status?.toLowerCase() === "open")?.count || 0
+        const totalAdvisors = advisorBreakdown.length
+        const totalWorkTypes = workTypeBreakdown.length
+        
+        return { openOrders, totalAdvisors, totalWorkTypes, count: data.length }
       }
+      
       return { count: data.length }
     }
 
@@ -1255,35 +1743,43 @@ export default function SMDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {selectedDataType === "ro_billing" && (
             <>
-              {renderMetricCard("Total Records", metrics.count, <FileText className="h-5 w-5" />, "blue")}
-              {renderMetricCard("Total Labour Amount", `₹${((metrics.totalLabour || 0) / 100000).toFixed(2)}L`, <TrendingUp className="h-5 w-5" />, "green")}
-              {renderMetricCard("Total Parts Amount", `₹${((metrics.totalParts || 0) / 100000).toFixed(2)}L`, <BarChart3 className="h-5 w-5" />, "orange")}
-              {renderMetricCard("Total Revenue (Labour + Parts)", `₹${((metrics.totalRevenue || 0) / 100000).toFixed(2)}L`, <DollarSign className="h-5 w-5" />, "emerald")}
+              {renderMetricCard("Total Records", formatNumber(metrics.count), <FileText className="h-5 w-5" />, "blue")}
+              {renderMetricCard("Total Labour Amount", formatCurrency(metrics.totalLabour || 0), <TrendingUp className="h-5 w-5" />, "green")}
+              {renderMetricCard("Total Parts Amount", formatCurrency(metrics.totalParts || 0), <BarChart3 className="h-5 w-5" />, "orange")}
+              {renderMetricCard("Total Revenue (Labour + Parts)", formatCurrency(metrics.totalRevenue || 0), <DollarSign className="h-5 w-5" />, "emerald")}
             </>
           )}
           {selectedDataType === "operations" && (
             <>
-              {renderMetricCard("Total Records", metrics.count, <FileText className="h-5 w-5" />, "blue")}
-              {renderMetricCard("Total Amount", `₹${((metrics.totalAmount || 0) / 100000).toFixed(2)}L`, <DollarSign className="h-5 w-5" />, "emerald")}
-              {renderMetricCard("Total Count", metrics.totalCount || 0, <BarChart3 className="h-5 w-5" />, "purple")}
-              {renderMetricCard("Avg per Item", `₹${metrics.totalCount ? ((metrics.totalAmount || 0) / metrics.totalCount).toFixed(0) : 0}`, <TrendingUp className="h-5 w-5" />, "orange")}
+              {renderMetricCard("Total Records", formatNumber(metrics.count), <FileText className="h-5 w-5" />, "blue")}
+              {renderMetricCard("Total Amount", formatCurrency(metrics.totalAmount || 0), <DollarSign className="h-5 w-5" />, "emerald")}
+              {renderMetricCard("Total Count", formatNumber(metrics.totalCount || 0), <BarChart3 className="h-5 w-5" />, "purple")}
+              {renderMetricCard("Avg per Item", formatCurrency(metrics.totalCount ? ((metrics.totalAmount || 0) / metrics.totalCount) : 0), <TrendingUp className="h-5 w-5" />, "orange")}
             </>
           )}
           {selectedDataType === "warranty" && (
             <>
-              {renderMetricCard("Total Claims", metrics.count, <Shield className="h-5 w-5" />, "blue")}
-              {renderMetricCard("Total Amount", `₹${(((metrics.totalLabour || 0) + (metrics.totalPart || 0)) / 100000).toFixed(2)}L`, <DollarSign className="h-5 w-5" />, "emerald")}
-              {renderMetricCard("Labour", `₹${((metrics.totalLabour || 0) / 100000).toFixed(2)}L`, <TrendingUp className="h-5 w-5" />, "green")}
-              {renderMetricCard("Parts", `₹${((metrics.totalPart || 0) / 100000).toFixed(2)}L`, <BarChart3 className="h-5 w-5" />, "orange")}
+              {renderMetricCard("Total Claims", formatNumber(metrics.count), <Shield className="h-5 w-5" />, "blue")}
+              {renderMetricCard("Total Amount", formatCurrency((metrics.totalLabour || 0) + (metrics.totalPart || 0)), <DollarSign className="h-5 w-5" />, "emerald")}
+              {renderMetricCard("Labour", formatCurrency(metrics.totalLabour || 0), <TrendingUp className="h-5 w-5" />, "green")}
+              {renderMetricCard("Parts", formatCurrency(metrics.totalPart || 0), <BarChart3 className="h-5 w-5" />, "orange")}
             </>
           )}
           {selectedDataType === "service_booking" && (
             <>
-              {renderMetricCard("Total Bookings", metrics.count, <Calendar className="h-5 w-5" />, "blue")}
-              {renderMetricCard("Completed (Close)", metrics.completed || 0, <CheckCircle className="h-5 w-5" />, "emerald")}
-              {renderMetricCard("Pending (In Progress)", metrics.pending || 0, <Clock className="h-5 w-5" />, "orange")}
-              {renderMetricCard("Open", metrics.open || 0, <FileText className="h-5 w-5" />, "blue")}
-              {renderMetricCard("Cancelled", metrics.cancelled || 0, <TrendingUp className="h-5 w-5" />, "red")}
+              {renderMetricCard("Total Bookings", formatNumber(metrics.count), <Calendar className="h-5 w-5" />, "blue")}
+              {renderMetricCard("Completed (Close)", formatNumber(metrics.completed || 0), <CheckCircle className="h-5 w-5" />, "emerald")}
+              {renderMetricCard("Pending (In Progress)", formatNumber(metrics.pending || 0), <Clock className="h-5 w-5" />, "orange")}
+              {renderMetricCard("Open", formatNumber(metrics.open || 0), <FileText className="h-5 w-5" />, "blue")}
+              {renderMetricCard("Cancelled", formatNumber(metrics.cancelled || 0), <TrendingUp className="h-5 w-5" />, "red")}
+            </>
+          )}
+          {selectedDataType === "repair_order_list" && (
+            <>
+              {renderMetricCard("Total Records", formatNumber(metrics.count), <FileText className="h-5 w-5" />, "blue")}
+              {renderMetricCard("Open Orders", formatNumber(metrics.openOrders || 0), <Clock className="h-5 w-5" />, "orange")}
+              {renderMetricCard("Service Advisors", formatNumber(metrics.totalAdvisors || 0), <Users className="h-5 w-5" />, "green")}
+              {renderMetricCard("Work Types", formatNumber(metrics.totalWorkTypes || 0), <Wrench className="h-5 w-5" />, "purple")}
             </>
           )}
         </div>
@@ -1298,6 +1794,29 @@ export default function SMDashboard() {
             !record.workType?.toLowerCase().includes('accidental repair') &&
             !record.workType?.toLowerCase().includes('running repair bodycare')
           );
+
+          // Debug YASHPAL ASEDIYA data
+          const yashpalRecords = filteredData.filter((record: any) => 
+            record.serviceAdvisor?.toUpperCase().includes('YASHPAL')
+          );
+          if (yashpalRecords.length > 0) {
+            console.log('🔍 YASHPAL ASEDIYA Debug - Filtered Data:');
+            console.log(`   - Total records after filtering: ${yashpalRecords.length}`);
+            let debugTotal = 0;
+            yashpalRecords.forEach((record, index) => {
+              const labourAmt = record.labourAmt || 0;
+              const partAmt = record.partAmt || 0;
+              const labourTax = record.labourTax || 0;
+              const partTax = record.partTax || 0;
+              const labour = showWithTax ? labourAmt + labourTax : labourAmt;
+              const parts = showWithTax ? partAmt + partTax : partAmt;
+              const total = labour + parts;
+              debugTotal += total;
+              console.log(`   - Record ${index + 1}: Labour=₹${labour}, Parts=₹${parts}, Total=₹${total}, Date=${record.billDate}, WorkType=${record.workType}`);
+            });
+            console.log(`   - Expected Total for YASHPAL: ₹${debugTotal.toLocaleString('en-IN')}`);
+            console.log(`   - Show With Tax: ${showWithTax}`);
+          }
 
           filteredData.forEach((record: any) => {
             const date = record.billDate || 'Unknown'
@@ -1371,6 +1890,26 @@ export default function SMDashboard() {
           const displayData = getDisplayData()
           const displayDate = Object.keys(displayData)[0]
           const advisors = displayData[displayDate] || {}
+          
+          // Debug YASHPAL ASEDIYA final calculation
+          const yashpalFinalData = advisors['YASHPAL ASEDIYA'];
+          if (yashpalFinalData) {
+            console.log('🎯 YASHPAL ASEDIYA Final Calculation:');
+            console.log(`   - Display Date: ${displayDate}`);
+            console.log(`   - Show Overall: ${showOverall}`);
+            console.log(`   - Selected Date: ${selectedDate}`);
+            console.log(`   - Final ROs: ${yashpalFinalData.ros}`);
+            console.log(`   - Final Labour: ₹${yashpalFinalData.labour.toLocaleString('en-IN')}`);
+            console.log(`   - Final Parts: ₹${yashpalFinalData.parts.toLocaleString('en-IN')}`);
+            console.log(`   - Final Total: ₹${yashpalFinalData.total.toLocaleString('en-IN')}`);
+            console.log(`   - Work Types: ${Object.keys(yashpalFinalData.workTypes).join(', ')}`);
+          } else {
+            console.log('❌ YASHPAL ASEDIYA not found in final advisors data');
+            console.log(`   - Available advisors: ${Object.keys(advisors).join(', ')}`);
+            console.log(`   - Display Date: ${displayDate}`);
+            console.log(`   - Show Overall: ${showOverall}`);
+            console.log(`   - Selected Date: ${selectedDate}`);
+          }
           
           // Calculate totals
           const totalROs = Object.values(advisors).reduce((sum, adv) => sum + adv.ros, 0)
@@ -2169,101 +2708,246 @@ export default function SMDashboard() {
           )
         })()}
         
-        {/* Service Booking Analysis */}
+        {/* Enhanced Service Booking Analysis with VIN Matching */}
         {selectedDataType === "service_booking" && (() => {
-          // Use the enhanced API data structure
-          const serviceAdvisorData = dashboardData.summary?.serviceAdvisorBreakdown || []
-          const workTypeData = dashboardData.summary?.workTypeBreakdown || []
+          // Use the new detailed advisor-worktype breakdown
+          const advisorWorkTypeData = dashboardData.summary?.serviceAdvisorBreakdown || []
           const statusData = dashboardData.summary?.statusBreakdown || []
-          
-          const topAdvisors = serviceAdvisorData.slice(0, 8)
+          const vinMatching = dashboardData.vinMatching || {}
           
           return (
-            <Card className="border-2 border-emerald-200 bg-gradient-to-br from-white to-emerald-50/30 shadow-lg">
-              <CardHeader>
-                <div className="flex items-center justify-between">
+            <div className="space-y-6">
+              {/* VIN Matching Summary Card */}
+              <Card className="border-2 border-blue-200 bg-gradient-to-br from-white to-blue-50/30 shadow-lg">
+                <CardHeader>
                   <div className="flex items-center gap-3">
-                    <div className="rounded-lg bg-emerald-100 p-2">
-                      <Calendar className="h-5 w-5 text-emerald-600" />
+                    <div className="rounded-lg bg-blue-100 p-2">
+                      <Car className="h-5 w-5 text-blue-600" />
                     </div>
                     <div>
-                      <CardTitle className="text-xl">Service Advisor Performance</CardTitle>
-                      <CardDescription>Booking completion rates by advisor</CardDescription>
+                      <h2 className="text-xl font-bold text-blue-900">VIN Matching Summary</h2>
+                      <p className="text-sm text-blue-700">Service booking analysis with VIN matching status</p>
                     </div>
                   </div>
-                  {hasPermission("service_booking_report") && (
-                  <Button
-                    onClick={() => router.push("/dashboard/reports/service-booking")}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                  >
-                    View Full Report →
-                  </Button>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Service Advisor Breakdown */}
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Service Advisors</h3>
-                    <div className="space-y-3">
-                      {topAdvisors.map((advisor, idx) => (
-                        <div key={idx} className="p-3 rounded-lg bg-white border border-gray-200 hover:border-emerald-300 transition-all">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
-                                <span className="text-sm font-bold text-emerald-700">{advisor.advisor.charAt(0)}</span>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-white p-4 rounded-lg border border-blue-200 shadow-sm">
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-blue-600">{vinMatching.totalBookings || 0}</p>
+                        <p className="text-sm text-blue-700 font-medium">Total Bookings</p>
+                      </div>
+                    </div>
+                    <div className="bg-green-50 p-4 rounded-lg border border-green-200 shadow-sm">
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-green-600">{vinMatching.matchedVINs || 0}</p>
+                        <p className="text-sm text-green-700 font-medium">VIN Matched</p>
+                        <p className="text-xs text-gray-500">Converted</p>
+                      </div>
+                    </div>
+                    <div className="bg-orange-50 p-4 rounded-lg border border-orange-200 shadow-sm">
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-orange-600">{vinMatching.unmatchedVINs || 0}</p>
+                        <p className="text-sm text-orange-700 font-medium">VIN Unmatched</p>
+                        <p className="text-xs text-gray-500">Processing/Future</p>
+                      </div>
+                    </div>
+                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 shadow-sm">
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-blue-600">
+                          {vinMatching.totalBookings > 0 ? Math.round((vinMatching.matchedVINs / vinMatching.totalBookings) * 100) : 0}%
+                        </p>
+                        <p className="text-sm text-blue-700 font-medium">Conversion Rate</p>
+                        <p className="text-xs text-gray-500">Overall</p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Advisor Work Type Performance */}
+              <Card className="border-2 border-emerald-200 bg-gradient-to-br from-white to-emerald-50/30 shadow-lg">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-lg bg-emerald-100 p-2">
+                        <Users className="h-5 w-5 text-emerald-600" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold text-emerald-900">Advisor Work Type Performance</h2>
+                        <p className="text-sm text-emerald-700">Performance breakdown by advisor and work type based on B.T Date & Time</p>
+                      </div>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                    <div className="space-y-4">
+                      {advisorWorkTypeData.length > 0 ? (
+                        advisorWorkTypeData.map((item, idx) => (
+                          <div key={idx} className="p-4 rounded-lg bg-white border border-gray-200 hover:border-emerald-300 transition-all shadow-sm">
+                            {/* Advisor and Work Type Header */}
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                                  <span className="text-sm font-bold text-emerald-700">{item.advisor.charAt(0)}</span>
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-gray-900">{item.advisor}</p>
+                                  <p className="text-sm text-blue-600 font-medium">Work Type: {item.workType}</p>
+                                  <p className="text-xs text-gray-500">Total: {item.count} bookings • Conversion: {item.conversionRate}%</p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="font-medium text-gray-900">{advisor.advisor}</p>
-                                <p className="text-xs text-gray-500">Service Advisor</p>
+                              <div className="text-right">
+                                <p className="text-xl font-bold text-emerald-700">{item.count}</p>
+                                <p className="text-xs text-gray-500">Total Bookings</p>
+                                <div className="mt-1">
+                                  <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full font-medium">
+                                    {item.conversionRate}% Conversion
+                                  </span>
+                                </div>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <p className="text-xl font-bold text-emerald-700">{advisor.count}</p>
-                              <p className="text-xs text-gray-500">Bookings</p>
+                            
+                            {/* Status Breakdown Grid */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                              <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+                                <div className="text-center">
+                                  <div className="text-lg mb-1">✅</div>
+                                  <p className="text-lg font-bold text-green-600">{item.converted}</p>
+                                  <p className="text-xs text-green-700 font-medium">Converted</p>
+                                  <p className="text-xs text-gray-500">Status: VIN Matched</p>
+                                </div>
+                              </div>
+                              
+                              <div className="bg-orange-50 p-3 rounded-lg border border-orange-200">
+                                <div className="text-center">
+                                  <div className="text-lg mb-1">⏳</div>
+                                  <p className="text-lg font-bold text-orange-600">{item.processing}</p>
+                                  <p className="text-xs text-orange-700 font-medium">Processing</p>
+                                  <p className="text-xs text-gray-500">Status: Past/Present</p>
+                                </div>
+                              </div>
+                              
+                              <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                                <div className="text-center">
+                                  <div className="text-lg mb-1">📅</div>
+                                  <p className="text-lg font-bold text-blue-600">{item.tomorrow}</p>
+                                  <p className="text-xs text-blue-700 font-medium">Tomorrow</p>
+                                  <p className="text-xs text-gray-500">Status: Next Day</p>
+                                </div>
+                              </div>
+                              
+                              <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
+                                <div className="text-center">
+                                  <div className="text-lg mb-1">🔮</div>
+                                  <p className="text-lg font-bold text-purple-600">{item.future}</p>
+                                  <p className="text-xs text-purple-700 font-medium">Future</p>
+                                  <p className="text-xs text-gray-500">Status: Future Date</p>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Excel Status Breakdown */}
+                            {item.excelStatuses && Object.keys(item.excelStatuses).length > 0 && (
+                              <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                <h5 className="font-semibold text-gray-800 mb-2">📄 Excel Status Breakdown</h5>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                  {Object.entries(item.excelStatuses).map(([status, count], statusIdx) => (
+                                    <div key={statusIdx} className="bg-white p-2 rounded border border-gray-300">
+                                      <div className="text-center">
+                                        <p className="text-sm font-bold text-gray-700">{count}</p>
+                                        <p className="text-xs text-gray-600">{status}</p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Status Explanation */}
+                            <div className="mt-3 pt-3 border-t border-gray-100">
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-gray-600">
+                                <div className="text-center">
+                                  <span className="text-green-600">✅ Converted:</span> VIN found in Repair Orders
+                                </div>
+                                <div className="text-center">
+                                  <span className="text-orange-600">⏳ Processing:</span> B.T Date ≤ Today
+                                </div>
+                                <div className="text-center">
+                                  <span className="text-blue-600">📅 Tomorrow:</span> B.T Date = Tomorrow
+                                </div>
+                                <div className="text-center">
+                                  <span className="text-purple-600">🔮 Future:</span> B.T Date &gt; Tomorrow
+                                </div>
+                              </div>
                             </div>
                           </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-8">
+                          <p className="text-gray-500">No advisor work type data available</p>
                         </div>
-                      ))}
+                      )}
                     </div>
-                  </div>
+                  </CardContent>
+                </Card>
 
-                  {/* Work Type & Status Breakdown */}
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Work Types & Status</h3>
-                    <div className="space-y-4">
-                      {/* Work Type */}
-                      <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
-                        <h4 className="font-medium text-blue-900 mb-2">Work Types</h4>
-                        <div className="space-y-2">
-                          {workTypeData.map((type, idx) => (
-                            <div key={idx} className="flex justify-between items-center">
-                              <span className="text-sm text-blue-800">{type.type}</span>
-                              <span className="font-semibold text-blue-900">{type.count}</span>
-                            </div>
-                          ))}
-                        </div>
+                {/* Overall Status Summary */}
+                <Card className="border-2 border-gray-200 bg-gradient-to-br from-white to-gray-50/30 shadow-lg">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-lg bg-gray-100 p-2">
+                        <BarChart3 className="h-5 w-5 text-gray-600" />
                       </div>
-
-                      {/* Status */}
-                      <div className="p-3 rounded-lg bg-orange-50 border border-orange-200">
-                        <h4 className="font-medium text-orange-900 mb-2">Status</h4>
-                        <div className="space-y-2">
-                          {statusData.map((status, idx) => (
-                            <div key={idx} className="flex justify-between items-center">
-                              <span className="text-sm text-orange-800">{status.status}</span>
-                              <span className="font-semibold text-orange-900">{status.count}</span>
-                            </div>
-                          ))}
-                        </div>
+                      <div>
+                        <h2 className="text-xl font-bold text-gray-900">Overall Status Summary</h2>
+                        <p className="text-sm text-gray-700">Booking status distribution based on VIN matching and B.T Date & Time</p>
                       </div>
                     </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {statusData.map((status, idx) => {
+                        const getStatusColor = (category) => {
+                          switch (category) {
+                            case 'converted': return { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300' }
+                            case 'processing': return { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-300' }
+                            case 'tomorrow': return { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-300' }
+                            case 'future': return { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-300' }
+                            default: return { bg: 'bg-gray-100', text: 'text-gray-700', border: 'border-gray-300' }
+                          }
+                        }
+                        
+                        const getStatusIcon = (category) => {
+                          switch (category) {
+                            case 'converted': return '✅'
+                            case 'processing': return '⏳'
+                            case 'tomorrow': return '📅'
+                            case 'future': return '🔮'
+                            default: return '❓'
+                          }
+                        }
+                        
+                        const colors = getStatusColor(status.category)
+                        
+                        return (
+                          <div key={idx} className={`p-4 rounded-lg border ${colors.bg} ${colors.border} shadow-sm`}>
+                            <div className="text-center">
+                              <div className="text-2xl mb-2">{getStatusIcon(status.category)}</div>
+                              <p className={`text-2xl font-bold ${colors.text}`}>{status.count}</p>
+                              <p className={`text-sm font-medium ${colors.text}`}>{status.status}</p>
+                              <p className="text-xs text-gray-500 mt-1">
+                                {Math.round((status.count / (vinMatching.totalBookings || 1)) * 100)}% of total
+                              </p>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )
         })()}
 
       </div>
@@ -2296,6 +2980,21 @@ export default function SMDashboard() {
                   <Calendar className="h-4 w-4" />
                   {new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
                 </div>
+                <Button
+                  onClick={() => {
+                    console.log('🔄 Manual refresh triggered')
+                    fetchedDataTypes.current.clear()
+                    setDashboardData(null)
+                    if (selectedDataType) {
+                      fetchDashboardData(selectedDataType)
+                    }
+                  }}
+                  variant="outline"
+                  className="bg-white/10 text-white border-white/30 hover:bg-white/20 shadow-lg hover:shadow-xl transition-all h-10 px-4"
+                >
+                  <Activity className="mr-2 h-4 w-4" />
+                  Refresh
+                </Button>
                 <Button
                   onClick={() => router.push("/dashboard/sm/upload")}
                   className="bg-white text-blue-700 hover:bg-blue-50 shadow-lg hover:shadow-xl transition-all h-10 px-5"
@@ -2350,6 +3049,14 @@ export default function SMDashboard() {
                       <div className="flex items-center gap-2">
                         <Calendar className="h-4 w-4 text-emerald-600" />
                         <span>Service Booking</span>
+                      </div>
+                    </SelectItem>
+                    )}
+                    {hasPermission("repair_order_list_dashboard") && (
+                    <SelectItem value="repair_order_list">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-indigo-600" />
+                        <span>Repair Order List</span>
                       </div>
                     </SelectItem>
                     )}

@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { getISTDate } from "../utils/dateUtils.js";
 
 // Schema for storing Warranty CSV data
 const warrantyDataSchema = new mongoose.Schema({
@@ -65,14 +66,14 @@ const warrantyDataSchema = new mongoose.Schema({
     default: 0
   },
   
-  // Timestamps
+  // Timestamps in IST
   created_at: {
     type: Date,
-    default: Date.now
+    default: getISTDate
   },
   updated_at: {
     type: Date,
-    default: Date.now
+    default: getISTDate
   }
 });
 
@@ -87,9 +88,9 @@ warrantyDataSchema.index({ claim_status: 1, showroom_id: 1 });
 warrantyDataSchema.index({ service_advisor: 1, showroom_id: 1 });
 warrantyDataSchema.index({ created_at: -1 });
 
-// Update the updated_at field before saving
+// Update the updated_at field before saving (in IST)
 warrantyDataSchema.pre('save', function(next) {
-  this.updated_at = new Date();
+  this.updated_at = getISTDate();
   next();
 });
 

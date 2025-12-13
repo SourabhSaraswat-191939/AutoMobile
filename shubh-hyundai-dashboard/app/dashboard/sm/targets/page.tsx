@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { usePermissions } from "@/hooks/usePermissions"
 import { getRoBillingReports, getServiceBookingReports, getWarrantyReports } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -31,6 +32,7 @@ interface AdvisorTarget {
 
 export default function SMTargetsPage() {
   const { user } = useAuth()
+  const { hasPermission } = usePermissions()
   const [target, setTarget] = useState<any | null>(null)
   const [achieved, setAchieved] = useState<any | null>(null)
   const [advisors, setAdvisors] = useState<Advisor[]>([])
@@ -187,6 +189,18 @@ export default function SMTargetsPage() {
   const daysInMonth = 30
   const today = new Date().getDate()
   const remainingDays = Math.max(1, daysInMonth - today)
+
+  // ✅ Check target management permissions
+  if (!hasPermission('target_report') && !hasPermission('gm_targets') && 
+      !hasPermission('ro_billing_dashboard') && user?.role !== "service_manager") {
+    return (
+      <div className="text-center py-12">
+        <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+        <p className="text-lg font-semibold">Access Denied</p>
+        <p className="text-muted-foreground">You need target or dashboard permissions to manage targets</p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

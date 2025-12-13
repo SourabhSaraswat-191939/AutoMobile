@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { getISTDate } from "../utils/dateUtils.js";
 
 // Schema for storing RO Billing CSV data
 const roBillingDataSchema = new mongoose.Schema({
@@ -79,14 +80,14 @@ const roBillingDataSchema = new mongoose.Schema({
     default: 0
   },
   
-  // Timestamps
+  // Timestamps in IST
   created_at: {
     type: Date,
-    default: Date.now
+    default: getISTDate
   },
   updated_at: {
     type: Date,
-    default: Date.now
+    default: getISTDate
   }
 });
 
@@ -100,9 +101,9 @@ roBillingDataSchema.index({ service_advisor: 1, showroom_id: 1 });
 roBillingDataSchema.index({ vehicle_number: 1, showroom_id: 1 });
 roBillingDataSchema.index({ created_at: -1 });
 
-// Update the updated_at field before saving
+// Update the updated_at field before saving (in IST)
 roBillingDataSchema.pre('save', function(next) {
-  this.updated_at = new Date();
+  this.updated_at = getISTDate();
   next();
 });
 

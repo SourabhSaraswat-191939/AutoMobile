@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { usePermissions } from "@/hooks/usePermissions"
 import { getRoBillingReports, getServiceBookingReports, getWarrantyReports, getAdvisorsByCity } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -25,6 +26,7 @@ const STORAGE_KEY = "gm_field_targets_v1"
 
 export default function GMFieldTargetsPage() {
   const { user } = useAuth()
+  const { hasPermission } = usePermissions()
   const [city, setCity] = useState("Pune")
   const [month, setMonth] = useState(new Date().toLocaleString("default", { month: "long" }))
   const [targets, setTargets] = useState<CityTarget[]>([])
@@ -36,12 +38,13 @@ export default function GMFieldTargetsPage() {
     if (raw) setTargets(JSON.parse(raw))
   }, [])
 
-  if (user?.role !== "general_manager") {
+  if (!hasPermission('target_report') && !hasPermission('manage_users') && !hasPermission('manage_roles') && user?.role !== "general_manager") {
     return (
       <div className="text-center py-12">
         <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
         <p className="text-lg font-semibold">Access Denied</p>
-        <p className="text-muted-foreground">Only General Managers can assign field-level targets</p>
+        <p className="text-muted-foreground">Currently, you have not been assigned any role.</p>
+        <p className="text-sm text-gray-500 mt-2">Please contact your admin for role assignment.</p>
       </div>
     )
   }

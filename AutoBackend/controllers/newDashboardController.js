@@ -1,8 +1,11 @@
+import UploadedFileMetaDetails from '../models/UploadedFileMetaDetails.js';
 import ROBillingData from '../models/ROBillingData.js';
 import WarrantyData from '../models/WarrantyData.js';
 import BookingListData from '../models/BookingListData.js';
 import OperationsPartData from '../models/OperationsPartData.js';
-import UploadedFileMetaDetails from '../models/UploadedFileMetaDetails.js';
+import AdvisorOperations from '../models/AdvisorOperations.js';
+import RepairOrderListData from '../models/RepairOrderListData.js';
+import dashboardStatsService from '../services/dashboardStatsService.js';
 import mongoose from 'mongoose';
 
 /**
@@ -28,44 +31,57 @@ export const getNewDashboardData = async (req, res) => {
     let summary = {};
     let uploads = [];
 
-    // Get file uploads metadata - try exact match first, then fallback to all uploads for debugging
-    let fileQuery = { uploaded_by: uploadedBy };
-    if (dataType && dataType !== 'all') {
-      // Map frontend dataType to backend file_type
-      const typeMapping = {
-        'ro_billing': 'ro_billing',
-        'operations': 'operations_part',
-        'warranty': 'warranty',
-        'service_booking': 'booking_list'
-      };
+    // Get file uploads metadata with smart matching
+    let fileQuery = {};
+    
+    // Map frontend dataType to backend file_type
+    const typeMapping = {
+      'ro_billing': 'ro_billing',
+      'operations': 'operations_part',
+      'warranty': 'warranty',
+      'service_booking': 'booking_list',
+      'repair_order_list': 'repair_order_list'
+    };
+    
+    if (dataType && dataType !== 'all' && dataType !== 'average') {
       fileQuery.file_type = typeMapping[dataType] || dataType;
     }
 
     console.log(`🔍 Searching uploads with query:`, fileQuery);
-    uploads = await UploadedFileMetaDetails.find(fileQuery)
+    
+    // Try exact email match first
+    const exactQuery = { ...fileQuery, uploaded_by: uploadedBy };
+    uploads = await UploadedFileMetaDetails.find(exactQuery)
       .sort({ uploaded_at: -1 })
       .limit(10);
     console.log(`📊 Found ${uploads.length} uploads for exact email match`);
 
-    // If no uploads found for exact email, try to find any uploads (for debugging)
+    // If no uploads found for exact email, try role-based matching
     if (uploads.length === 0) {
-      console.log(`⚠️ No uploads found for email "${uploadedBy}", checking all uploads...`);
-      const allUploads = await UploadedFileMetaDetails.find({}).select('uploaded_by file_type').limit(5);
-      console.log(`📋 Available uploaded_by values:`, allUploads.map(u => u.uploaded_by));
+      console.log(`⚠️ No uploads found for email "${uploadedBy}", trying role-based matching...`);
       
-      // Use all uploads regardless of email for now (since data is shared)
-      const fallbackQuery = dataType && dataType !== 'all' && dataType !== 'average' ? { file_type: fileQuery.file_type } : {};
-      uploads = await UploadedFileMetaDetails.find(fallbackQuery)
-        .sort({ uploaded_at: -1 })
-        .limit(10);
-      console.log(`📊 Using fallback query, found ${uploads.length} uploads`);
-      
-      // If still no uploads, try to get any ro_billing uploads specifically
-      if (uploads.length === 0) {
-        uploads = await UploadedFileMetaDetails.find({ file_type: 'ro_billing' })
+      // For service managers, try to find uploads from any SM email
+      if (uploadedBy && (uploadedBy.includes('sm.') || uploadedBy.includes('service'))) {
+        const smQuery = { 
+          ...fileQuery,
+          uploaded_by: { $regex: /sm\.|service/i }
+        };
+        uploads = await UploadedFileMetaDetails.find(smQuery)
           .sort({ uploaded_at: -1 })
           .limit(10);
-        console.log(`📊 Final fallback: found ${uploads.length} ro_billing uploads`);
+        console.log(`📊 Found ${uploads.length} uploads for SM role-based match`);
+      }
+      
+      // If still no uploads, get all uploads for the file type
+      if (uploads.length === 0) {
+        uploads = await UploadedFileMetaDetails.find(fileQuery)
+          .sort({ uploaded_at: -1 })
+          .limit(10);
+        console.log(`📊 Using fallback query, found ${uploads.length} uploads`);
+        
+        // Debug: Show available uploaded_by values
+        const allUploads = await UploadedFileMetaDetails.find({}).select('uploaded_by file_type').limit(5);
+        console.log(`📋 Available uploaded_by values:`, allUploads.map(u => u.uploaded_by));
       }
     }
 
@@ -290,6 +306,60 @@ export const getNewDashboardData = async (req, res) => {
         }
         break;
 
+      case 'repair_order_list':
+        const repairOrderFiles = uploads.filter(f => f.file_type === 'repair_order_list');
+        if (repairOrderFiles.length > 0) {
+          const fileIds = repairOrderFiles.map(f => f._id);
+          data = await RepairOrderListData.find({ uploaded_file_id: { $in: fileIds } })
+            .sort({ created_at: -1 });
+          count = await RepairOrderListData.countDocuments({ uploaded_file_id: { $in: fileIds } });
+          
+          // Calculate summary for Repair Order List
+          const statusBreakdown = await RepairOrderListData.aggregate([
+            { $match: { uploaded_file_id: { $in: fileIds } } },
+            { $group: { 
+              _id: '$ro_status',
+              count: { $sum: 1 }
+            }},
+            { $sort: { count: -1 } }
+          ]);
+
+          const advisorBreakdown = await RepairOrderListData.aggregate([
+            { $match: { uploaded_file_id: { $in: fileIds } } },
+            { $group: { 
+              _id: '$svc_adv',
+              count: { $sum: 1 }
+            }},
+            { $sort: { count: -1 } }
+          ]);
+
+          const workTypeBreakdown = await RepairOrderListData.aggregate([
+            { $match: { uploaded_file_id: { $in: fileIds } } },
+            { $group: { 
+              _id: '$work_type',
+              count: { $sum: 1 }
+            }},
+            { $sort: { count: -1 } }
+          ]);
+          
+          summary = {
+            totalRecords: count,
+            statusBreakdown: statusBreakdown.map(item => ({
+              status: item._id,
+              count: item.count
+            })),
+            advisorBreakdown: advisorBreakdown.map(item => ({
+              advisor: item._id,
+              count: item.count
+            })),
+            workTypeBreakdown: workTypeBreakdown.map(item => ({
+              workType: item._id,
+              count: item.count
+            }))
+          };
+        }
+        break;
+
       default:
         // Get all data types with actual data for average dashboard
         const allFiles = uploads;
@@ -380,7 +450,8 @@ export const getNewDashboardData = async (req, res) => {
 
     console.log(`✅ Dashboard data retrieved: ${count} records, ${uploads.length} uploads`);
 
-    return res.status(200).json({
+    // Prepare response data
+    const responseData = {
       success: true,
       dataType: dataType || 'all',
       count,
@@ -394,7 +465,20 @@ export const getNewDashboardData = async (req, res) => {
         rowsCount: upload.rows_count,
         processingStatus: upload.processing_status
       }))
-    });
+    };
+
+    // Save dashboard stats to database (async, don't wait for completion)
+    if (dataType && dataType !== 'all' && dataType !== 'average' && count > 0) {
+      dashboardStatsService.saveDashboardStats(uploadedBy, city || 'Unknown', dataType, responseData)
+        .then(() => {
+          console.log(`💾 Dashboard stats saved for ${dataType}`);
+        })
+        .catch(error => {
+          console.error(`❌ Error saving dashboard stats for ${dataType}:`, error.message);
+        });
+    }
+
+    return res.status(200).json(responseData);
 
   } catch (error) {
     console.error("❌ Dashboard data error:", error);

@@ -57,36 +57,36 @@ export function Sidebar() {
       show: (isSM || isSA) && hasPermission("upload"),
     },
     
-    // Reports - Show if user has permission
+    // Reports - Show only for SM/SA, not GM (GM has overview in their dashboard)
     {
       label: "Target Report",
       href: "/dashboard/reports/targets",
       icon: Target,
-      show: hasPermission("target_report"),
+      show: !isGM && hasPermission("target_report"),
     },
     {
       label: "RO Billing Report",
       href: "/dashboard/reports/ro-billing",
       icon: BarChart3,
-      show: hasPermission("ro_billing_report"),
+      show: !isGM && hasPermission("ro_billing_report"),
     },
     {
       label: "Warranty Report",
       href: "/dashboard/reports/warranty",
       icon: BarChart3,
-      show: hasPermission("warranty_report"),
+      show: !isGM && hasPermission("warranty_report"),
     },
     {
       label: "Operations Report",
       href: "/dashboard/reports/operations",
       icon: BarChart3,
-      show: hasPermission("operations_report"),
+      show: !isGM && hasPermission("operations_report"),
     },
     {
       label: "Service Booking Report",
       href: "/dashboard/reports/service-booking",
       icon: BarChart3,
-      show: hasPermission("service_booking_report"),
+      show: !isGM && hasPermission("service_booking_report"),
     },
   ]
 

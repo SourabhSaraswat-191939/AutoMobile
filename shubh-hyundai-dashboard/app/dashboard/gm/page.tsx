@@ -170,8 +170,9 @@ export default function GMDashboard() {
     )
   }
 
-  // Check permissions first, then fallback to role
-  const canAccess = hasPermission('can_access_gm_dashboard') || user?.role === "general_manager"
+  // ✅ UPDATED: Check permissions OR general_manager role (they assign permissions to others)
+  const canAccess = hasPermission('manage_users') || hasPermission('manage_roles') || 
+                   hasPermission('target_report') || user?.role === "general_manager"
   
   if (permissionsLoading) {
     return (

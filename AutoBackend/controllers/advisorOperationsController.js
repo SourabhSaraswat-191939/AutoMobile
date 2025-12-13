@@ -1,6 +1,8 @@
 import XLSX from "xlsx";
 import AdvisorOperations from "../models/AdvisorOperations.js";
 import AdvisorPerformanceSummary from "../models/AdvisorPerformanceSummary.js";
+import ExcelUploadService from "../services/excelUploadService.js";
+import UploadedFileMetaDetails from "../models/UploadedFileMetaDetails.js";
 
 // Helper function to update advisor performance summary
 const updateAdvisorPerformanceSummary = async (advisorName, city, uploadedBy, dataDate, totalMatchedAmount, matchedOperations) => {
@@ -82,7 +84,130 @@ const PREDEFINED_OPERATIONS = [
   "UNDERBODY COATING",
 ];
 
-// Upload advisor operation Excel file
+// Upload advisor operation Excel file with Case-based logic
+export const uploadAdvisorOperationsWithCases = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    const { advisorName, uploadedBy, city, dataDate } = req.body;
+
+    if (!advisorName || !uploadedBy || !city) {
+      return res.status(400).json({ 
+        message: "Missing required fields: advisorName, uploadedBy, or city" 
+      });
+    }
+
+    // Parse dataDate or use current IST date
+    let operationDate;
+    if (dataDate) {
+      operationDate = new Date(dataDate);
+    } else {
+      // Get current time in IST (UTC+5:30)
+      const now = new Date();
+      const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
+      operationDate = new Date(now.getTime() + istOffset);
+    }
+    operationDate.setUTCHours(0, 0, 0, 0);
+
+    // Read Excel file
+    const workbook = XLSX.readFile(req.file.path);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const jsonData = XLSX.utils.sheet_to_json(sheet);
+
+    console.log(`Processing operations file for advisor: ${advisorName}`);
+    console.log(`Total rows in Excel: ${jsonData.length}`);
+
+    // Process the Excel data and match operations
+    const processedRows = [];
+    let totalMatchedAmount = 0;
+
+    jsonData.forEach((row, index) => {
+      const opPartDesc = row["OP/Part Desc."] || 
+                        row["OP/Part Desc"] || 
+                        row["Operation"] || 
+                        row["Description"] || 
+                        "";
+
+      if (!opPartDesc) return;
+
+      // Check if this operation matches any predefined operation
+      const matchedOp = PREDEFINED_OPERATIONS.find(predefinedOp => 
+        opPartDesc.trim().toLowerCase() === predefinedOp.toLowerCase()
+      );
+
+      if (matchedOp) {
+        const columnKeys = Object.keys(row);
+        const secondLastColumnKey = columnKeys[columnKeys.length - 2];
+        const amount = parseFloat(row[secondLastColumnKey] || 0);
+
+        console.log(`Match found at row ${index + 1}: ${matchedOp} = ₹${amount}`);
+
+        // Create a processed row for case-based upload
+        processedRows.push({
+          advisor_name: advisorName,
+          operation_name: matchedOp,
+          operation_amount: amount,
+          data_date: operationDate,
+          city: city,
+          uploaded_by: uploadedBy,
+          original_description: opPartDesc
+        });
+
+        totalMatchedAmount += amount;
+      }
+    });
+
+    // Use ExcelUploadService for case-based upload
+    const excelUploadService = new ExcelUploadService();
+    
+    // Prepare file data for upload service
+    const fileData = {
+      db_file_name: `operations_${advisorName}_${Date.now()}.xlsx`,
+      uploaded_file_name: req.file.originalname,
+      rows_count: processedRows.length,
+      uploaded_by: uploadedBy,
+      org_id: req.body.org_id || "674c5b3b8f8a5c2d4e6f7890", // Default org_id
+      showroom_id: req.body.showroom_id || "674c5b3b8f8a5c2d4e6f7891", // Default showroom_id
+      file_type: "operations_part",
+      file_size: req.file.size
+    };
+
+    // Upload using case-based logic
+    const uploadResult = await excelUploadService.uploadExcel(processedRows, fileData);
+
+    // Update advisor performance summary
+    const matchedOperations = processedRows.map(row => ({
+      operation: row.operation_name,
+      amount: row.operation_amount
+    }));
+
+    await updateAdvisorPerformanceSummary(advisorName, city, uploadedBy, operationDate, totalMatchedAmount, matchedOperations);
+
+    return res.status(200).json({
+      message: `Operations data processed successfully using ${uploadResult.uploadCase} ✅`,
+      advisorName,
+      totalMatchedAmount,
+      matchedCount: processedRows.length,
+      uploadCase: uploadResult.uploadCase,
+      insertedCount: uploadResult.insertedCount,
+      updatedCount: uploadResult.updatedCount,
+      fileId: uploadResult.fileId,
+      uploadDate: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+    });
+
+  } catch (error) {
+    console.error("Upload error:", error);
+    res.status(500).json({ 
+      message: "Error processing Excel file", 
+      error: error.message 
+    });
+  }
+};
+
+// Upload advisor operation Excel file (Original method - kept for backward compatibility)
 export const uploadAdvisorOperations = async (req, res) => {
   try {
     if (!req.file) {

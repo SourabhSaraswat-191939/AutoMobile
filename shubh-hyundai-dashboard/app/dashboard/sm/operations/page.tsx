@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { usePermissions } from "@/hooks/usePermissions"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Upload, AlertCircle, FileText, DollarSign, CheckCircle, Trash2, Eye, Search, Calendar } from "lucide-react"
@@ -23,6 +24,7 @@ interface AdvisorOperation {
 
 export default function OperationsPage() {
   const { user } = useAuth()
+  const { hasPermission } = usePermissions()
   const [advisors, setAdvisors] = useState<string[]>([])
   const [operationsData, setOperationsData] = useState<AdvisorOperation[]>([])
   const [roData, setRoData] = useState<any[]>([])
@@ -181,12 +183,13 @@ export default function OperationsPage() {
     advisor.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  if (user?.role !== "service_manager") {
+  // ✅ UPDATED: Check database permissions instead of hardcoded role
+  if (!hasPermission('operations_dashboard') && !hasPermission('operations_upload') && user?.role !== "service_manager") {
     return (
       <div className="text-center py-12">
         <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
         <p className="text-lg font-semibold">Access Denied</p>
-        <p className="text-muted-foreground">Only Service Managers can access this page</p>
+        <p className="text-muted-foreground">You need operations dashboard or upload permissions to access this page</p>
       </div>
     )
   }

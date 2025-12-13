@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear Permission Cache</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
+        .success { color: green; }
+        .info { color: blue; }
+    </style>
+</head>
+<body>
+    <h1>Permission Cache Manager</h1>
+    <p>Use this tool to clear cached permissions and force fresh data from the database.</p>
+    
+    <button class="button" onclick="clearAllPermissionCache()">Clear All Permission Cache</button>
+    <button class="button" onclick="clearSpecificUserCache()">Clear Specific User Cache</button>
+    <button class="button" onclick="viewCachedPermissions()">View Cached Permissions</button>
+    
+    <div id="output" style="margin-top: 20px;"></div>
+    
+    <script>
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const div = document.createElement('div');
+            div.className = type;
+            div.innerHTML = message;
+            output.appendChild(div);
+        }
+        
+        function clearAllPermissionCache() {
+            const allKeys = Object.keys(localStorage);
+            let clearedCount = 0;
+            
+            allKeys.forEach(key => {
+                if (key.startsWith('permissions_')) {
+                    localStorage.removeItem(key);
+                    clearedCount++;
+                    log(`🗑️ Cleared cache: ${key}`);
+                }
+            });
+            
+            if (clearedCount > 0) {
+                log(`✅ Cleared ${clearedCount} permission cache entries`, 'success');
+                log('🔄 Please refresh your dashboard to load fresh permissions', 'info');
+            } else {
+                log('ℹ️ No permission caches found to clear', 'info');
+            }
+        }
+        
+        function clearSpecificUserCache() {
+            const email = prompt('Enter user email (e.g., sm.pune@shubh.com):');
+            if (!email) return;
+            
+            const cacheKey = `permissions_${email}`;
+            if (localStorage.getItem(cacheKey)) {
+                localStorage.removeItem(cacheKey);
+                log(`✅ Cleared cache for user: ${email}`, 'success');
+                log('🔄 Please refresh your dashboard to load fresh permissions', 'info');
+            } else {
+                log(`ℹ️ No cache found for user: ${email}`, 'info');
+            }
+        }
+        
+        function viewCachedPermissions() {
+            const allKeys = Object.keys(localStorage);
+            const permissionKeys = allKeys.filter(key => key.startsWith('permissions_'));
+            
+            if (permissionKeys.length === 0) {
+                log('ℹ️ No cached permissions found', 'info');
+                return;
+            }
+            
+            log(`📋 Found ${permissionKeys.length} cached permission entries:`, 'info');
+            
+            permissionKeys.forEach(key => {
+                try {
+                    const data = JSON.parse(localStorage.getItem(key));
+                    const email = key.replace('permissions_', '');
+                    const timestamp = new Date(data.timestamp).toLocaleString();
+                    const permissionCount = data.permissions ? data.permissions.length : 0;
+                    
+                    log(`👤 ${email}: ${permissionCount} permissions (cached: ${timestamp})`);
+                } catch (e) {
+                    log(`❌ Error reading cache for ${key}: ${e.message}`);
+                }
+            });
+        }
+        
+        // Auto-clear cache for sm.pune@shubh.com on page load
+        window.onload = function() {
+            log('🚀 Permission Cache Manager loaded', 'info');
+            log('💡 Tip: After clearing cache, refresh your dashboard page to see updated permissions', 'info');
+            
+            // Auto-clear for the specific user mentioned in the issue
+            const specificUser = 'sm.pune@shubh.com';
+            const cacheKey = `permissions_${specificUser}`;
+            if (localStorage.getItem(cacheKey)) {
+                localStorage.removeItem(cacheKey);
+                log(`🔧 Auto-cleared cache for ${specificUser}`, 'success');
+            }
+        };
+    </script>
+</body>
+</html>

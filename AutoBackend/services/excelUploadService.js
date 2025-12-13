@@ -3,6 +3,7 @@ import ROBillingData from '../models/ROBillingData.js';
 import WarrantyData from '../models/WarrantyData.js';
 import BookingListData from '../models/BookingListData.js';
 import OperationsPartData from '../models/OperationsPartData.js';
+import RepairOrderListData from '../models/RepairOrderListData.js';
 import mongoose from 'mongoose';
 import crypto from 'crypto';
 
@@ -33,13 +34,18 @@ class ExcelUploadService {
       },
       'booking_list': {
         model: BookingListData,
-        uniqueKey: 'Reg_No',
+        uniqueKey: 'vin_number',  // Changed from Reg_No to vin_number
         name: 'Booking List'
       },
       'operations_part': {
         model: OperationsPartData,
         uniqueKey: 'OP_Part_Code',
         name: 'Operations/Part'
+      },
+      'repair_order_list': {
+        model: RepairOrderListData,
+        uniqueKey: 'vin',  // Changed from composite key to just VIN
+        name: 'Repair Order List'
       }
     };
     
@@ -105,6 +111,18 @@ class ExcelUploadService {
   }
 
   /**
+   * Check for duplicate file by hash
+   */
+  async checkDuplicateFile(fileHash, showroomId) {
+    const duplicateFile = await UploadedFileMetaDetails.findOne({
+      file_hash: fileHash,
+      showroom_id: showroomId,
+      processing_status: 'completed'
+    });
+    return duplicateFile;
+  }
+
+  /**
    * Analyze Excel data to determine which case applies
    */
   async analyzeExcelData(excelRows, fileType, showroomId, fileHash) {
@@ -124,19 +142,57 @@ class ExcelUploadService {
     });
 
     // Extract unique keys from Excel
-    const excelUniqueKeys = excelRows.map(row => row[uniqueKey]).filter(key => key);
+    console.log(`🔍 Looking for unique key field: ${uniqueKey}`);
+    console.log(`📋 Sample Excel row:`, excelRows[0]);
+    console.log(`📋 Available fields in Excel:`, Object.keys(excelRows[0] || {}));
     
-    if (excelUniqueKeys.length === 0) {
-      throw new Error(`No valid ${uniqueKey} found in Excel data`);
+    // Extract unique keys from Excel data
+    let excelUniqueKeys;
+    if (Array.isArray(uniqueKey)) {
+      // Handle composite unique keys (for RepairOrderList)
+      excelUniqueKeys = excelRows.map(row => 
+        uniqueKey.map(key => row[key] || '').join('|')
+      ).filter(key => key !== ''); // Remove empty composite keys
+    } else {
+      // Handle single unique keys
+      excelUniqueKeys = excelRows.map(row => row[uniqueKey]).filter(key => key !== '');
     }
 
-    // Check which keys already exist in database
-    const existingRecords = await model.find({
-      [uniqueKey]: { $in: excelUniqueKeys },
-      showroom_id: showroomId
-    }).select([uniqueKey, 'uploaded_file_id']);
+    // Find existing records
+    let existingRecords;
+    let existingKeys;
 
-    const existingKeys = existingRecords.map(record => record[uniqueKey]);
+    if (Array.isArray(uniqueKey)) {
+      // For composite keys, we need to check each component
+      const keyConditions = excelUniqueKeys.map(compositeKey => {
+        const keys = compositeKey.split('|');
+        const condition = {};
+        uniqueKey.forEach((key, index) => {
+          condition[key] = keys[index];
+        });
+        return condition;
+      });
+
+      // Use $or to find any matching composite keys
+      existingRecords = await model.find({
+        $or: keyConditions,
+        showroom_id: showroomId
+      }).select([...uniqueKey, 'uploaded_file_id']);
+
+      // Extract composite keys from existing records
+      existingKeys = existingRecords.map(record => 
+        uniqueKey.map(key => record[key] || '').join('|')
+      );
+    } else {
+      // Single key handling (existing logic)
+      existingRecords = await model.find({
+        [uniqueKey]: { $in: excelUniqueKeys },
+        showroom_id: showroomId
+      }).select([uniqueKey, 'uploaded_file_id']);
+
+      existingKeys = existingRecords.map(record => record[uniqueKey]);
+    }
+
     const newKeys = excelUniqueKeys.filter(key => !existingKeys.includes(key));
 
     console.log(`📊 Analysis for ${config.name}:`);
@@ -219,22 +275,72 @@ class ExcelUploadService {
   }
 
   /**
-   * CASE 1: New file - insert all rows with uploaded_file_id
+   * CASE 1: New file - insert all rows with uploaded_file_id (with upsert for duplicates)
    */
   async handleCase1NewFile(excelRows, fileMetadata, model, session) {
-    console.log('📝 CASE 1: Inserting all rows as new records');
+    console.log('📝 CASE 1: Inserting all rows as new records (with upsert for duplicates)');
     
-    const documentsToInsert = excelRows.map(row => ({
-      ...row,
-      uploaded_file_id: fileMetadata._id,  // Set foreign key to file metadata
-      showroom_id: fileMetadata.showroom_id,
-      created_at: new Date(),
-      updated_at: new Date()
-    }));
-
-    const result = await model.insertMany(documentsToInsert, { session });
-    console.log(`✅ Inserted ${result.length} new records with uploaded_file_id: ${fileMetadata._id}`);
-    return result.length;
+    const config = this.getModelConfig(fileMetadata.file_type);
+    const { uniqueKey } = config;
+    
+    let insertedCount = 0;
+    let updatedCount = 0;
+    
+    // Use upsert operations to handle potential duplicates
+    for (const row of excelRows) {
+      const documentData = {
+        ...row,
+        uploaded_file_id: fileMetadata._id,
+        showroom_id: fileMetadata.showroom_id,
+        updated_at: new Date()
+      };
+      
+      let queryCondition;
+      
+      if (Array.isArray(uniqueKey)) {
+        // Handle composite unique keys (like repair_order_list)
+        queryCondition = {};
+        uniqueKey.forEach(key => {
+          queryCondition[key] = row[key];
+        });
+        queryCondition.showroom_id = fileMetadata.showroom_id;
+      } else {
+        // Handle single unique key (like booking_list Reg_No)
+        queryCondition = {
+          [uniqueKey]: row[uniqueKey],
+          showroom_id: fileMetadata.showroom_id
+        };
+      }
+      
+      try {
+        const result = await model.findOneAndUpdate(
+          queryCondition,
+          {
+            $set: documentData,
+            $setOnInsert: { created_at: new Date() }
+          },
+          {
+            upsert: true,
+            new: true,
+            session: session
+          }
+        );
+        
+        // Check if it was an insert or update
+        if (result.created_at && result.created_at.getTime() === result.updated_at.getTime()) {
+          insertedCount++;
+        } else {
+          updatedCount++;
+        }
+        
+      } catch (error) {
+        console.error(`❌ Error upserting record with ${uniqueKey}:`, Array.isArray(uniqueKey) ? uniqueKey.map(k => row[k]) : row[uniqueKey], error.message);
+        throw error;
+      }
+    }
+    
+    console.log(`✅ CASE 1 completed: ${insertedCount} inserted, ${updatedCount} updated with uploaded_file_id: ${fileMetadata._id}`);
+    return insertedCount;
   }
 
   /**
@@ -246,18 +352,56 @@ class ExcelUploadService {
     let updatedCount = 0;
     
     for (const row of excelRows) {
+      let existingRecord;
+      let queryCondition;
+      
+      if (Array.isArray(uniqueKey)) {
+        // Handle composite unique keys
+        const compositeKey = uniqueKey.map(key => row[key] || '').join('|');
+        existingRecord = existingRecords.find(record => 
+          uniqueKey.map(key => record[key] || '').join('|') === compositeKey
+        );
+        
+        // Build query condition for composite key
+        queryCondition = {};
+        uniqueKey.forEach(key => {
+          queryCondition[key] = row[key];
+        });
+      } else {
+        // Handle single unique key
+        existingRecord = existingRecords.find(record => record[uniqueKey] === row[uniqueKey]);
+        queryCondition = { [uniqueKey]: row[uniqueKey] };
+      }
+      
       const updateData = {
         ...row,
         uploaded_file_id: fileMetadata._id,  // Update to new file metadata ID
         updated_at: new Date()
       };
       
-      // Remove the unique key from update data to avoid conflicts
-      delete updateData[uniqueKey];
+      // Handle amount fields properly for RO Billing and Warranty
+      if (fileMetadata.file_type === 'ro_billing') {
+        // For RO billing, update amounts properly
+        if (row.labour_amount !== undefined) updateData.labour_amount = row.labour_amount;
+        if (row.parts_amount !== undefined) updateData.parts_amount = row.parts_amount;
+        if (row.total_amount !== undefined) updateData.total_amount = row.total_amount;
+      } else if (fileMetadata.file_type === 'warranty') {
+        // For warranty, update claim amounts properly
+        if (row.labour_amount !== undefined) updateData.labour_amount = row.labour_amount;
+        if (row.part_amount !== undefined) updateData.part_amount = row.part_amount;
+        if (row.total_claim_amount !== undefined) updateData.total_claim_amount = row.total_claim_amount;
+      }
+      
+      // Remove the unique key(s) from update data to avoid conflicts
+      if (Array.isArray(uniqueKey)) {
+        uniqueKey.forEach(key => delete updateData[key]);
+      } else {
+        delete updateData[uniqueKey];
+      }
       
       const result = await model.updateOne(
         {
-          [uniqueKey]: row[uniqueKey],
+          ...queryCondition,
           showroom_id: fileMetadata.showroom_id
         },
         { $set: updateData },
@@ -266,6 +410,10 @@ class ExcelUploadService {
       
       if (result.modifiedCount > 0) {
         updatedCount++;
+        const keyDisplay = Array.isArray(uniqueKey) 
+          ? uniqueKey.map(key => row[key]).join('|')
+          : row[uniqueKey];
+        console.log(`📝 Updated ${Array.isArray(uniqueKey) ? 'composite key' : uniqueKey}: ${keyDisplay} with new data`);
       }
     }
     
@@ -283,22 +431,76 @@ class ExcelUploadService {
     let updatedCount = 0;
     
     // Separate rows into existing and new
-    const existingRows = excelRows.filter(row => existingKeys.includes(row[uniqueKey]));
-    const newRows = excelRows.filter(row => newKeys.includes(row[uniqueKey]));
+    let existingRows, newRows;
     
-    // Update existing rows with new uploaded_file_id
+    if (Array.isArray(uniqueKey)) {
+      // Handle composite unique keys
+      existingRows = excelRows.filter(row => {
+        const compositeKey = uniqueKey.map(key => row[key] || '').join('|');
+        return existingKeys.includes(compositeKey);
+      });
+      newRows = excelRows.filter(row => {
+        const compositeKey = uniqueKey.map(key => row[key] || '').join('|');
+        return newKeys.includes(compositeKey);
+      });
+    } else {
+      // Handle single unique keys
+      existingRows = excelRows.filter(row => existingKeys.includes(row[uniqueKey]));
+      newRows = excelRows.filter(row => newKeys.includes(row[uniqueKey]));
+    }
+    
+    // Update existing rows with new uploaded_file_id and proper amount handling
     for (const row of existingRows) {
+      let existingRecord;
+      let queryCondition;
+      
+      if (Array.isArray(uniqueKey)) {
+        // Handle composite unique keys
+        const compositeKey = uniqueKey.map(key => row[key] || '').join('|');
+        existingRecord = existingRecords.find(record => 
+          uniqueKey.map(key => record[key] || '').join('|') === compositeKey
+        );
+        
+        // Build query condition for composite key
+        queryCondition = {};
+        uniqueKey.forEach(key => {
+          queryCondition[key] = row[key];
+        });
+      } else {
+        // Handle single unique key
+        existingRecord = existingRecords.find(record => record[uniqueKey] === row[uniqueKey]);
+        queryCondition = { [uniqueKey]: row[uniqueKey] };
+      }
+      
       const updateData = {
         ...row,
         uploaded_file_id: fileMetadata._id,  // Update to new file metadata ID
         updated_at: new Date()
       };
       
-      delete updateData[uniqueKey];
+      // Handle amount fields properly for RO Billing and Warranty
+      if (fileMetadata.file_type === 'ro_billing') {
+        // For RO billing, update amounts properly
+        if (row.labour_amount !== undefined) updateData.labour_amount = row.labour_amount;
+        if (row.parts_amount !== undefined) updateData.parts_amount = row.parts_amount;
+        if (row.total_amount !== undefined) updateData.total_amount = row.total_amount;
+      } else if (fileMetadata.file_type === 'warranty') {
+        // For warranty, update claim amounts properly
+        if (row.labour_amount !== undefined) updateData.labour_amount = row.labour_amount;
+        if (row.part_amount !== undefined) updateData.part_amount = row.part_amount;
+        if (row.total_claim_amount !== undefined) updateData.total_claim_amount = row.total_claim_amount;
+      }
+      
+      // Remove the unique key(s) from update data to avoid conflicts
+      if (Array.isArray(uniqueKey)) {
+        uniqueKey.forEach(key => delete updateData[key]);
+      } else {
+        delete updateData[uniqueKey];
+      }
       
       const result = await model.updateOne(
         {
-          [uniqueKey]: row[uniqueKey],
+          ...queryCondition,
           showroom_id: fileMetadata.showroom_id
         },
         { $set: updateData },
@@ -307,6 +509,10 @@ class ExcelUploadService {
       
       if (result.modifiedCount > 0) {
         updatedCount++;
+        const keyDisplay = Array.isArray(uniqueKey) 
+          ? uniqueKey.map(key => row[key]).join('|')
+          : row[uniqueKey];
+        console.log(`📝 Updated ${Array.isArray(uniqueKey) ? 'composite key' : uniqueKey}: ${keyDisplay} with new data in mixed file`);
       }
     }
     
@@ -322,6 +528,7 @@ class ExcelUploadService {
 
       const result = await model.insertMany(documentsToInsert, { session });
       insertedCount = result.length;
+      console.log(`✅ Inserted ${insertedCount} new records with uploaded_file_id: ${fileMetadata._id}`);
     }
     
     console.log(`✅ Mixed processing completed:`);
@@ -355,11 +562,18 @@ class ExcelUploadService {
       // Step 4: Process data based on case with proper uploaded_file_id handling
       const result = await this.processExcelData(excelRows, fileMetadata, analysis);
       
-      // Step 5: Update metadata status to completed
-      await this.updateFileMetadataStatus(fileMetadata._id, 'completed');
+      // Step 5: Update metadata with case information and completion status
+      await UploadedFileMetaDetails.findByIdAndUpdate(fileMetadata._id, {
+        processing_status: 'completed',
+        upload_case: analysis.uploadCase,
+        rows_inserted: result.insertedCount || 0,
+        rows_updated: result.updatedCount || 0,
+        updated_at: new Date()
+      });
       
       console.log(`🎉 Excel upload completed successfully!`);
       console.log(`📋 All records now have uploaded_file_id: ${fileMetadata._id}`);
+      console.log(`📊 Case: ${analysis.uploadCase}, Inserted: ${result.insertedCount}, Updated: ${result.updatedCount}`);
       
       return {
         success: true,

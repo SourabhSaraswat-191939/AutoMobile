@@ -2,13 +2,14 @@
 
 import { useState } from "react"
 import { useAuth } from "@/lib/auth-context"
+import { usePermissions } from "@/hooks/usePermissions"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Upload, CheckCircle, AlertCircle, FileText, Loader2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { getApiUrl } from "@/lib/config"
 
-type UploadType = "ro_billing" | "operations" | "warranty" | "service_booking"
+type UploadType = "ro_billing" | "operations" | "warranty" | "service_booking" | "repair_order_list"
 
 interface UploadSection {
   type: UploadType
@@ -42,28 +43,38 @@ const uploadSections: UploadSection[] = [
     description: "Upload service bookings and scheduling information. Required: Reg. No or Reg_No",
     color: "orange",
   },
+  {
+    type: "repair_order_list",
+    title: "Repair Order List",
+    description: "Upload repair order list with VIN details. Required: R/O No, VIN. Columns: Svc Adv, Work Type, Model, Reg No, R/O Status, R/O Date, R/O No, VIN",
+    color: "indigo",
+  },
 ]
 
 export default function ServiceManagerUploadPage() {
   const { user } = useAuth()
+  const { hasPermission } = usePermissions()
   const router = useRouter()
   const [files, setFiles] = useState<Record<UploadType, File | null>>({
     ro_billing: null,
     operations: null,
     warranty: null,
     service_booking: null,
+    repair_order_list: null,
   })
   const [isLoading, setIsLoading] = useState<Record<UploadType, boolean>>({
     ro_billing: false,
     operations: false,
     warranty: false,
     service_booking: false,
+    repair_order_list: false,
   })
   const [messages, setMessages] = useState<Record<UploadType, { type: "success" | "error"; text: string } | null>>({
     ro_billing: null,
     operations: null,
     warranty: null,
     service_booking: null,
+    repair_order_list: null,
   })
 
   const handleFileChange = (type: UploadType, event: React.ChangeEvent<HTMLInputElement>) => {
@@ -90,7 +101,7 @@ export default function ServiceManagerUploadPage() {
     try {
       const formData = new FormData()
       formData.append("excelFile", file) // Changed from "file" to "excelFile"
-      formData.append("uploaded_by", user.email) // Changed from "uploadedBy"
+      formData.append("uploaded_by", user.email) // For excel controller
       formData.append("org_id", "64f8a1b2c3d4e5f6a7b8c9d0") // Demo org ID
       formData.append("showroom_id", "64f8a1b2c3d4e5f6a7b8c9d1") // Demo showroom ID
       
@@ -99,11 +110,18 @@ export default function ServiceManagerUploadPage() {
         ro_billing: "ro_billing",
         operations: "operations_part",
         warranty: "warranty", 
-        service_booking: "booking_list"
+        service_booking: "booking_list",
+        repair_order_list: "repair_order_list"
       }
       formData.append("file_type", fileTypeMapping[type])
 
-      const response = await fetch("http://localhost:5000/api/excel/upload", {
+      // Use different API endpoints based on type
+      let apiEndpoint = "http://localhost:5000/api/excel/upload"
+      if (type === "repair_order_list") {
+        apiEndpoint = "http://localhost:5000/api/service-manager/repair-order-list/upload"
+      }
+
+      const response = await fetch(apiEndpoint, {
         method: "POST",
         body: formData,
       })
@@ -163,8 +181,27 @@ export default function ServiceManagerUploadPage() {
         text: "text-orange-700",
         hover: "hover:bg-orange-100",
       },
+      indigo: {
+        bg: "bg-indigo-50",
+        border: "border-indigo-200",
+        text: "text-indigo-700",
+        hover: "hover:bg-indigo-100",
+      },
     }
     return colors[color] || colors.blue
+  }
+
+  // ✅ Check upload permissions
+  if (!hasPermission('ro_billing_upload') && !hasPermission('operations_upload') && 
+      !hasPermission('warranty_upload') && !hasPermission('service_booking_upload') && 
+      !hasPermission('repair_order_list_upload') && !hasPermission('upload') && user?.role !== "service_manager") {
+    return (
+      <div className="text-center py-12">
+        <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+        <p className="text-lg font-semibold">Access Denied</p>
+        <p className="text-muted-foreground">You need upload permissions to access this page</p>
+      </div>
+    )
   }
 
   return (

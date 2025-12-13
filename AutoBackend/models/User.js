@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { getISTDate } from '../utils/dateUtils.js';
 
 const userSchema = new mongoose.Schema(
   {
@@ -36,9 +37,25 @@ const userSchema = new mongoose.Schema(
     }
   },
   {
-    timestamps: { createdAt: "created_at", updatedAt: "updated_at" }
+    timestamps: false
   }
 );
+
+userSchema.add({
+  created_at: {
+    type: Date,
+    default: getISTDate
+  },
+  updated_at: {
+    type: Date,
+    default: getISTDate
+  }
+});
+
+userSchema.pre('save', function(next) {
+  this.updated_at = getISTDate();
+  next();
+});
 
 // Index for faster queries (email and username already have unique indexes from schema)
 userSchema.index({ org_id: 1 });

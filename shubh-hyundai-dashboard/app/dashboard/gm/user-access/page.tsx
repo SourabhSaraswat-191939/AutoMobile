@@ -1,8 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useAuth, getAllDemoUsers, type User as AuthUser } from "@/lib/auth-context"
 import { usePermissions } from "@/hooks/usePermissions"
+import { getApiUrl } from "@/lib/config"
+import { formatTimestampForDisplay } from "@/lib/timeUtils"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,10 +12,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Shield, Trash2, UserCircle } from "lucide-react"
+import { Shield, Trash2, UserCircle, Loader2, CheckCircle, XCircle, AlertCircle } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
-import { getApiUrl } from "@/lib/config"
-import { Loader2 } from "lucide-react"
 
 interface Permission {
   _id: string
@@ -60,7 +60,22 @@ const convertAuthUsersToRBACUsers = (authUsers: AuthUser[]): User[] => {
 
 export default function UserAccessRoleManagement() {
   const { user } = useAuth()
-  const { permissions: userPermissions, hasPermission } = usePermissions()
+  const { permissions: userPermissions, hasPermission, debug } = usePermissions()
+  
+  // Debug permissions on component mount
+  useEffect(() => {
+    if (user) {
+      console.log("🐛 User Access Page Debug:")
+      console.log("- User:", user.email, "Role:", user.role)
+      console.log("- User Permissions:", userPermissions)
+      console.log("- Has Manage Users:", hasPermission('manage_users'))
+      console.log("- Has Manage Roles:", hasPermission('manage_roles'))
+      console.log("- Has GM Role:", user.role === 'general_manager')
+      
+      // Call debug function
+      if (debug) debug()
+    }
+  }, [user, userPermissions, hasPermission, debug])
   const [isAddRoleOpen, setIsAddRoleOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<string>("")
   const [selectedRole, setSelectedRole] = useState<string>("")
@@ -81,6 +96,53 @@ export default function UserAccessRoleManagement() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [editingRole, setEditingRole] = useState<Role | null>(null)
+  
+  // Notification state
+  const [notification, setNotification] = useState<{
+    show: boolean
+    type: 'success' | 'error' | 'warning'
+    title: string
+    message: string
+  }>({
+    show: false,
+    type: 'success',
+    title: '',
+    message: ''
+  })
+
+  // Timeout ref for notifications
+  const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Delete confirmation modal state
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    show: boolean
+    roleId: string
+    roleName: string
+  }>({
+    show: false,
+    roleId: '',
+    roleName: ''
+  })
+
+  // Helper function to show notifications
+  const showNotification = (type: 'success' | 'error' | 'warning', title: string, message: string) => {
+    // Clear any existing timeout
+    if (notificationTimeoutRef.current) {
+      clearTimeout(notificationTimeoutRef.current)
+    }
+    
+    setNotification({
+      show: true,
+      type,
+      title,
+      message
+    })
+    
+    // Auto-hide after 5 seconds with fade-out
+    notificationTimeoutRef.current = setTimeout(() => {
+      setNotification(prev => ({ ...prev, show: false }))
+    }, 5000)
+  }
 
   // Fetch data on component mount
   useEffect(() => {
@@ -94,26 +156,66 @@ export default function UserAccessRoleManagement() {
       // Get demo users from auth context
       const demoUsers = getAllDemoUsers()
       
-      // Get current user's org_id
+      // Get current user's org_id and showroom_id
       const userOrgId = user?.org_id || "shubh_hyundai"
+      const userShowroomId = (user as any)?.showroom_id || "674c5b3b8f8a5c2d4e6f7891"
       setSelectedOrgId(userOrgId)
 
-      // Fetch roles and permissions only (remove users API call)
-      const [rolesRes, permissionsRes] = await Promise.all([
-        fetch(getApiUrl("/api/rbac/roles")),
-        fetch(getApiUrl("/api/rbac/permissions"))
-      ])
+      // Test backend connectivity first
+      console.log("🔗 Testing backend connectivity...")
+      try {
+        const healthCheck = await fetch(getApiUrl("/"))
+        console.log("✅ Backend health check:", healthCheck.status)
+        if (healthCheck.ok) {
+          const healthData = await healthCheck.json()
+          console.log("📊 Backend response:", healthData)
+        }
+      } catch (healthError) {
+        console.error("❌ Backend connectivity test failed:", healthError)
+        setError("Backend server is not accessible. Please ensure the server is running on port 5000.")
+        return
+      }
 
-      console.log("API responses:", {
+      // Fetch roles and permissions with enhanced error handling
+      console.log("🔄 Fetching roles and permissions...")
+      console.log("🌐 Roles URL:", getApiUrl("/api/rbac/roles"))
+      console.log("🌐 Permissions URL:", getApiUrl("/api/rbac/permissions"))
+      
+      let rolesRes, permissionsRes
+      
+      try {
+        [rolesRes, permissionsRes] = await Promise.all([
+          fetch(getApiUrl(`/api/rbac/roles?showroom_id=${userShowroomId}`)),
+          fetch(getApiUrl(`/api/rbac/permissions?showroom_id=${userShowroomId}`))
+        ])
+      } catch (fetchError) {
+        console.error("❌ Network error during API calls:", fetchError)
+        setError("Network error: Unable to connect to the backend server. Please check if the server is running.")
+        return
+      }
+
+      console.log("📡 API responses:", {
         roles: rolesRes.status,
         permissions: permissionsRes.status
       })
 
       if (!rolesRes.ok) {
-        console.error("Roles fetch failed:", rolesRes.status, rolesRes.statusText)
+        console.error("❌ Roles fetch failed:", rolesRes.status, rolesRes.statusText)
+        try {
+          const errorText = await rolesRes.text()
+          console.error("❌ Roles error details:", errorText)
+        } catch (e) {
+          console.error("❌ Could not read roles error response")
+        }
       }
       if (!permissionsRes.ok) {
-        console.error("Permissions fetch failed:", permissionsRes.status, permissionsRes.statusText)
+        console.error("❌ Permissions fetch failed:", permissionsRes.status, permissionsRes.statusText)
+        try {
+          const errorText = await permissionsRes.text()
+          console.error("❌ Permissions error details:", errorText)
+        } catch (e) {
+          console.error("❌ Could not read permissions error response")
+        }
       }
 
       const rolesData = rolesRes.ok ? await rolesRes.json() : { data: [] }
@@ -123,13 +225,9 @@ export default function UserAccessRoleManagement() {
       console.log("Fetched roles:", rolesData.data)
       console.log("Fetched permissions (raw):", permissionsData.data)
 
-      // Filter out unwanted permissions (old upload permissions we don't want)
+      // ✅ UPDATED: Show all permissions - let users decide what they need
+      // Only filter out truly deprecated permissions
       const unwantedPermissions = [
-        'ro_billing_upload',
-        'operations_upload', 
-        'warranty_upload',
-        'service_booking_upload',
-        'average_upload',
         'assign_targets'  // Replaced with gm_targets
       ]
       
@@ -145,12 +243,13 @@ export default function UserAccessRoleManagement() {
         try {
           const seedResponse = await fetch(getApiUrl("/api/rbac/seed-permissions"), {
             method: "POST",
-            headers: { "Content-Type": "application/json" }
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ showroom_id: userShowroomId })
           })
           
           if (seedResponse.ok) {
             // Refetch permissions after seeding
-            const newPermissionsRes = await fetch(getApiUrl("/api/rbac/permissions"))
+            const newPermissionsRes = await fetch(getApiUrl(`/api/rbac/permissions?showroom_id=${userShowroomId}`))
             if (newPermissionsRes.ok) {
               const newPermissionsData = await newPermissionsRes.json()
               permissionsData.data = newPermissionsData.data
@@ -161,10 +260,66 @@ export default function UserAccessRoleManagement() {
                 !unwantedPermissions.includes(p.permission_key)
               ) || []
               console.log("Filtered permissions after seeding:", newFilteredPermissions)
+              
+              // Update the filteredPermissions variable for use later
+              filteredPermissions.length = 0
+              filteredPermissions.push(...newFilteredPermissions)
             }
           }
         } catch (seedError) {
           console.error("Failed to seed permissions:", seedError)
+        }
+      } else {
+        // Check if any critical permissions are missing and re-seed if needed
+        const criticalPermissions = [
+          'repair_order_list_dashboard',
+          'ro_billing_dashboard',
+          'operations_dashboard',
+          'warranty_dashboard',
+          'service_booking_dashboard',
+          'repair_order_list_upload',
+          'ro_billing_upload',
+          'operations_upload',
+          'warranty_upload',
+          'service_booking_upload',
+          'average_upload'
+        ]
+        
+        const missingPermissions = criticalPermissions.filter(permKey => 
+          !permissionsData.data.some((p: any) => p.permission_key === permKey)
+        )
+        
+        if (missingPermissions.length > 0) {
+          console.log(`Missing permissions detected: ${missingPermissions.join(', ')}, re-seeding...`)
+          try {
+            const seedResponse = await fetch(getApiUrl("/api/rbac/seed-permissions"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ showroom_id: userShowroomId })
+            })
+            
+            if (seedResponse.ok) {
+              // Refetch permissions after seeding
+              const newPermissionsRes = await fetch(getApiUrl(`/api/rbac/permissions?showroom_id=${userShowroomId}`))
+              if (newPermissionsRes.ok) {
+                const newPermissionsData = await newPermissionsRes.json()
+                permissionsData.data = newPermissionsData.data
+                console.log("Permissions re-seeded successfully:", newPermissionsData.data)
+                
+                // Update filtered permissions after re-seeding
+                const newFilteredPermissions = newPermissionsData.data?.filter((p: any) => 
+                  !unwantedPermissions.includes(p.permission_key)
+                ) || []
+                console.log("Filtered permissions after re-seeding:", newFilteredPermissions)
+                
+                // Update the filteredPermissions variable for use later
+                filteredPermissions.length = 0
+                filteredPermissions.push(...newFilteredPermissions)
+              }
+            }
+          } catch (seedError) {
+            console.error("Failed to re-seed permissions:", seedError)
+          }
         }
       }
 
@@ -292,12 +447,12 @@ export default function UserAccessRoleManagement() {
 
   const handleAddRole = async () => {
     if (!selectedPredefinedRole.trim()) {
-      alert("Please enter a role name")
+      showNotification('warning', 'Role Name Required', 'Please enter a role name')
       return
     }
 
     if (selectedPermissions.length === 0) {
-      alert("Please select at least one permission")
+      showNotification('warning', 'Permissions Required', 'Please select at least one permission')
       return
     }
 
@@ -308,51 +463,76 @@ export default function UserAccessRoleManagement() {
         permissions: selectedPermissions
       })
 
-      // Check if role already exists
-      const existingRolesResponse = await fetch(getApiUrl("/api/rbac/roles"))
-      let existingRole = null
-      
-      if (existingRolesResponse.ok) {
-        const existingRolesData = await existingRolesResponse.json()
-        existingRole = existingRolesData.data.find((r: any) => r.name === selectedPredefinedRole)
-      }
-
       let roleId
-      if (existingRole) {
-        // Role exists, use its ID
-        console.log("Role already exists:", existingRole._id)
-        roleId = existingRole._id
+      
+      if (editingRole) {
+        // We're editing an existing role
+        console.log("Editing existing role:", editingRole._id)
+        roleId = editingRole._id
+        
+        // Note: Role description update not supported by current API
+        // Only permissions will be updated
       } else {
-        // Create new role first (without permissions)
-        console.log("Creating new role")
-        const roleResponse = await fetch(getApiUrl("/api/rbac/roles"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: selectedPredefinedRole,
-            desc: newRoleDescription || `${selectedPredefinedRole} role with configured permissions`,
-            permissions: [] // No permissions in role creation
-          })
-        })
-
-        if (!roleResponse.ok) {
-          const errorData = await roleResponse.json()
-          console.error("Role creation error:", errorData)
-          throw new Error(errorData.message || "Failed to create role")
+        // Check if role already exists (for new role creation)
+        const existingRolesResponse = await fetch(getApiUrl("/api/rbac/roles"))
+        let existingRole = null
+        
+        if (existingRolesResponse.ok) {
+          const existingRolesData = await existingRolesResponse.json()
+          existingRole = existingRolesData.data.find((r: any) => r.name === selectedPredefinedRole)
         }
 
-        const roleResult = await roleResponse.json()
-        roleId = roleResult.data._id
+        if (existingRole) {
+          // Role exists, use its ID
+          console.log("Role already exists:", existingRole._id)
+          roleId = existingRole._id
+        } else {
+          // Create new role first (without permissions)
+          console.log("Creating new role")
+          const roleResponse = await fetch(getApiUrl("/api/rbac/roles"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: selectedPredefinedRole,
+              desc: newRoleDescription || `${selectedPredefinedRole} role with configured permissions`,
+              permissions: [] // No permissions in role creation
+            })
+          })
+
+          if (!roleResponse.ok) {
+            const errorData = await roleResponse.json()
+            console.error("Role creation error:", errorData)
+            throw new Error(errorData.message || "Failed to create role")
+          }
+
+          const roleResult = await roleResponse.json()
+          roleId = roleResult.data._id
+        }
       }
 
       // Now assign permissions to the role
       console.log("Assigning permissions to role:", roleId)
       
-      // First, remove all existing permissions for this role
-      const removeResponse = await fetch(getApiUrl(`/api/rbac/roles/${roleId}/permissions`), {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" }
-      })
+      // If editing an existing role, first remove all existing permissions
+      if (editingRole && editingRole.permissions && editingRole.permissions.length > 0) {
+        console.log("Removing existing permissions for role:", editingRole.permissions.length)
+        
+        const removePromises = editingRole.permissions.map(permission => 
+          fetch(getApiUrl(`/api/rbac/role-permissions/${roleId}/${permission._id}`), {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" }
+          })
+        )
+        
+        const removeResults = await Promise.all(removePromises)
+        const failedRemovals = removeResults.filter(res => !res.ok)
+        
+        if (failedRemovals.length > 0) {
+          console.warn("Some permission removals failed:", failedRemovals.length)
+        } else {
+          console.log("All existing permissions removed successfully")
+        }
+      }
 
       // Then add the selected permissions
       const permissionPromises = selectedPermissions.map(permissionId => 
@@ -410,17 +590,23 @@ export default function UserAccessRoleManagement() {
       setEditingRole(null)
       setIsAddRoleOpen(false)
       
-      alert(`Role "${selectedPredefinedRole}" ${editingRole ? 'updated' : 'configured'} successfully with ${selectedPermissions.length} permissions! All users with this role will automatically get these permissions.`)
+      showNotification('success', 'Role Configured Successfully', `Role "${selectedPredefinedRole}" ${editingRole ? 'updated' : 'configured'} successfully with ${selectedPermissions.length} permissions! All users with this role will automatically get these permissions.`)
     } catch (err: any) {
       console.error("Error configuring role:", err)
-      alert(err.message || "Failed to configure role. Please try again.")
+      showNotification('error', 'Configuration Failed', err.message || "Failed to configure role. Please try again.")
     }
   }
 
-  const handleDeleteRole = async (roleId: string, roleName: string) => {
-    if (!confirm(`Are you sure you want to delete the role "${roleName}"? This will remove the role from all users but will NOT delete the users themselves.`)) {
-      return
-    }
+  const handleDeleteRole = (roleId: string, roleName: string) => {
+    setDeleteConfirmation({
+      show: true,
+      roleId,
+      roleName
+    })
+  }
+
+  const confirmDeleteRole = async () => {
+    const { roleId, roleName } = deleteConfirmation
 
     try {
       const response = await fetch(getApiUrl(`/api/rbac/roles/${roleId}`), {
@@ -490,16 +676,23 @@ export default function UserAccessRoleManagement() {
       }))
       
       setUsers(mergedUsers)
-      alert(`Role "${roleName}" deleted successfully! Users are preserved but no longer have this role.`)
+      showNotification('success', 'Role Deleted Successfully', `Role "${roleName}" deleted successfully! Users are preserved but no longer have this role.`)
     } catch (err) {
       console.error("Error deleting role:", err)
-      alert("Failed to delete role. Please try again.")
+      showNotification('error', 'Delete Failed', "Failed to delete role. Please try again.")
+    } finally {
+      // Close the confirmation modal
+      setDeleteConfirmation({ show: false, roleId: '', roleName: '' })
     }
+  }
+
+  const cancelDeleteRole = () => {
+    setDeleteConfirmation({ show: false, roleId: '', roleName: '' })
   }
 
   const handleAssignRoleToUser = async () => {
     if (!selectedUser || !selectedRole) {
-      alert("Please select both user and role")
+      showNotification('warning', 'Selection Required', 'Please select both user and role')
       return
     }
 
@@ -618,19 +811,21 @@ export default function UserAccessRoleManagement() {
       setSelectedUser("")
       setSelectedRole("")
       
-      alert(`Role "${selectedRole}" assigned successfully to ${selectedUserData.name}! Refreshing data...`)
+      showNotification('success', 'Role Assigned Successfully', `Role "${selectedRole}" assigned successfully to ${selectedUserData.name}! Refreshing data...`)
     } catch (err: any) {
       console.error("Error assigning role:", err)
-      alert(err.message || "Failed to assign role. Please try again.")
+      showNotification('error', 'Assignment Failed', err.message || "Failed to assign role. Please try again.")
     }
   }
 
-  if (user?.role !== "general_manager") {
+  // ✅ UPDATED: Check permissions OR general_manager role (they assign permissions to others)
+  if (!hasPermission('manage_users') && !hasPermission('manage_roles') && user?.role !== "general_manager") {
     return (
       <div className="text-center py-12">
         <Shield className="h-12 w-12 text-red-600 mx-auto mb-4" />
         <p className="text-lg font-semibold">Access Denied</p>
-        <p className="text-muted-foreground">Only General Managers can access this page</p>
+        <p className="text-muted-foreground">Currently, you have not been assigned any role.</p>
+        <p className="text-sm text-gray-500 mt-2">Please contact your admin for role assignment.</p>
       </div>
     )
   }
@@ -831,9 +1026,9 @@ export default function UserAccessRoleManagement() {
 
                     <div className="space-y-2">
                       <Label>Permissions</Label>
-                      <div className="grid grid-cols-2 gap-3 border rounded-lg p-4 bg-gray-50 max-h-64 overflow-y-auto">
+                      <div className="grid grid-cols-1 gap-2 border rounded-lg p-4 bg-gray-50 max-h-80 overflow-y-auto">
                         {permissions.length === 0 ? (
-                          <div className="col-span-2 text-center py-4">
+                          <div className="text-center py-4">
                             <p className="text-sm text-gray-500">No permissions available.</p>
                             <p className="text-xs text-amber-600 mt-1">
                               Run: <code className="bg-gray-100 px-1 rounded">node scripts/seedPermissions.js</code>
@@ -1066,6 +1261,144 @@ export default function UserAccessRoleManagement() {
           </CardContent>
         </Card>
       )}
+
+      {/* Enhanced Notification Popup */}
+      {notification.show && (
+        <div className="fixed top-6 right-6 z-50 max-w-sm animate-in slide-in-from-right-full duration-300">
+          <div className={`relative overflow-hidden rounded-xl shadow-2xl backdrop-blur-sm border ${
+            notification.type === 'success' 
+              ? 'bg-gradient-to-r from-green-500 to-emerald-600 border-green-300' :
+            notification.type === 'error' 
+              ? 'bg-gradient-to-r from-red-500 to-rose-600 border-red-300' :
+              'bg-gradient-to-r from-amber-500 to-orange-600 border-amber-300'
+          }`}>
+            {/* Background Pattern */}
+            <div className="absolute inset-0 bg-white/10 backdrop-blur-sm"></div>
+            
+            {/* Content */}
+            <div className="relative p-4">
+              <div className="flex items-start space-x-3">
+                {/* Icon with animated background */}
+                <div className={`flex-shrink-0 p-2 rounded-full ${
+                  notification.type === 'success' ? 'bg-white/20' :
+                  notification.type === 'error' ? 'bg-white/20' :
+                  'bg-white/20'
+                }`}>
+                  {notification.type === 'success' && <CheckCircle className="h-6 w-6 text-white animate-pulse" />}
+                  {notification.type === 'error' && <XCircle className="h-6 w-6 text-white animate-pulse" />}
+                  {notification.type === 'warning' && <AlertCircle className="h-6 w-6 text-white animate-pulse" />}
+                </div>
+                
+                {/* Text Content */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white mb-1">
+                    {notification.title}
+                  </p>
+                  <p className="text-sm text-white/90 leading-relaxed">
+                    {notification.message}
+                  </p>
+                </div>
+                
+                {/* Close Button */}
+                <button
+                  className="flex-shrink-0 p-1 rounded-full bg-white/20 hover:bg-white/30 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-white/50"
+                  onClick={() => setNotification(prev => ({ ...prev, show: false }))}
+                >
+                  <XCircle className="h-5 w-5 text-white" />
+                </button>
+              </div>
+              
+              {/* Progress Bar */}
+              <div className="mt-3 h-1 bg-white/20 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-white/60 rounded-full animate-pulse"
+                  style={{
+                    animation: 'progress 5s linear forwards'
+                  }}
+                ></div>
+              </div>
+            </div>
+            
+            {/* Decorative Elements */}
+            <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-10 translate-x-10"></div>
+            <div className="absolute bottom-0 left-0 w-16 h-16 bg-white/5 rounded-full translate-y-8 -translate-x-8"></div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmation.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-red-500 to-rose-600 px-6 py-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-white/20 rounded-full">
+                  <AlertCircle className="h-6 w-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Confirm Delete</h3>
+                  <p className="text-sm text-white/90">This action cannot be undone</p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="p-6">
+              <p className="text-gray-700 mb-2">
+                Are you sure you want to delete the role <span className="font-semibold text-red-600">"{deleteConfirmation.roleName}"</span>?
+              </p>
+              <p className="text-sm text-gray-500">
+                This will remove the role from all users but will NOT delete the users themselves.
+              </p>
+            </div>
+            
+            {/* Actions */}
+            <div className="bg-gray-50 px-6 py-4 flex justify-end space-x-3">
+              <Button
+                variant="outline"
+                onClick={cancelDeleteRole}
+                className="hover:bg-gray-100"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmDeleteRole}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                Delete Role
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom CSS for progress animation */}
+      <style jsx>{`
+        @keyframes progress {
+          from {
+            width: 100%;
+          }
+          to {
+            width: 0%;
+          }
+        }
+        
+        @keyframes slideInFromRight {
+          from {
+            transform: translateX(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+        
+        .animate-in {
+          animation: slideInFromRight 0.3s ease-out forwards;
+        }
+      `}</style>
 
     </div>
   )

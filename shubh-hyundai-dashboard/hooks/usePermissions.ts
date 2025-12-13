@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { getApiUrl } from "@/lib/config"
 
@@ -21,7 +21,6 @@ export function usePermissions() {
     if (user) {
       // Check if we already cached permissions for this user
       if (lastFetchedEmail === user.email && permissions.length > 0) {
-        console.log("Using cached permissions for:", user.email)
         setIsLoading(false)
         return
       }
@@ -33,20 +32,21 @@ export function usePermissions() {
     }
   }, [user])
 
-  const fetchUserPermissions = async () => {
+  const fetchUserPermissions = useCallback(async () => {
     if (!user) return
 
     try {
       setIsLoading(true)
       setError(null)
 
-      // Check localStorage cache first (5 minute cache)
+      // Check for valid cache
       const cachedPermissions = localStorage.getItem(`permissions_${user.email}`)
       if (cachedPermissions) {
         const parsed = JSON.parse(cachedPermissions)
         const cacheAge = Date.now() - parsed.timestamp
+        
+        // Use cache if less than 5 minutes old
         if (cacheAge < 300000) {
-          console.log("✅ Using cached permissions for:", user.email)
           setPermissions(parsed.permissions)
           setLastFetchedEmail(user.email)
           setIsLoading(false)
@@ -54,141 +54,87 @@ export function usePermissions() {
         }
       }
 
-      // ROLE-FIRST APPROACH: Set role permissions immediately, then enhance with API if available
-      console.log("🎯 Starting with role-based permissions for:", user.role)
+      // Set role permissions for recognized roles
       const rolePermissions = getWorkingRoleBasedPermissions(user.role)
       
-      // ALWAYS set role permissions immediately for instant access
-      setPermissions(rolePermissions)
-      setLastFetchedEmail(user.email)
-      console.log("✅ Role-based permissions set immediately:", rolePermissions.length, "permissions")
-      console.log("📋 Permissions:", rolePermissions)
+      if (rolePermissions.length > 0) {
+        setPermissions(rolePermissions)
+        setLastFetchedEmail(user.email)
+      }
+      // For custom roles, don't set empty permissions yet - wait for database API
 
       // Try to enhance with database permissions (optional)
-      console.log("🔄 Checking for database permission enhancements...")
-      
-      // DIRECT API CALL: Try the direct permissions API first
-      console.log("🎯 Trying direct permissions API first...")
       try {
         const directApiUrl = getApiUrl(`/api/rbac/users/email/${encodeURIComponent(user.email)}/permissions`)
-        console.log("🌐 Direct API URL:", directApiUrl)
-        
-        const directResponse = await fetch(directApiUrl)
-        console.log("📡 Direct API Response Status:", directResponse.status)
+        console.log("🔍 Fetching permissions for:", user.email, "Role:", user.role)
+        console.log("🌐 API URL:", directApiUrl)
+        const directResponse = await fetch(directApiUrl, { cache: 'no-cache' })
+        console.log("📡 API Response Status:", directResponse.status)
         
         if (directResponse.ok) {
           const directData = await directResponse.json()
-          console.log("📦 Direct API Response Data:", directData)
+          console.log("📦 Full API Response:", JSON.stringify(directData, null, 2))
           
-          const directPermissions = directData.data?.permissions || directData.permissions || []
-          console.log("🔍 Raw direct permissions:", directPermissions)
-          console.log("🔍 Direct permissions type:", typeof directPermissions)
-          console.log("🔍 Direct permissions length:", directPermissions.length)
+          // Try multiple ways to extract permissions
+          let directPermissions = directData.data?.permissions || directData.permissions || directData.data || []
           
-          if (directPermissions.length > 0) {
-            // Convert to permission keys array
+          // If it's an object with a permissions property, extract it
+          if (directPermissions && typeof directPermissions === 'object' && !Array.isArray(directPermissions)) {
+            directPermissions = directPermissions.permissions || []
+          }
+          
+          console.log("📋 Extracted permissions array:", directPermissions)
+          console.log("🔢 Permissions count:", Array.isArray(directPermissions) ? directPermissions.length : 0)
+          
+          if (Array.isArray(directPermissions) && directPermissions.length > 0) {
             const directPermissionKeys = directPermissions.map((p: any) => {
-              console.log("🔍 Processing permission object:", p)
-              return p.permission_key || p.permissionKey || p.key || p
-            })
-            console.log("✅ Direct API permissions:", directPermissionKeys)
-            console.log("🔍 Permission keys length:", directPermissionKeys.length)
-            
-            if (directPermissionKeys.length > 0 && directPermissionKeys[0]) {
-              console.log("✅ Using direct API permissions")
-              
-              // Smart dashboard detection based on permissions
-              const hasDashboardPermission = directPermissionKeys.some(p => 
-                p && p.includes('can_access_') && p.includes('dashboard')
-              )
-              console.log("🔍 Has dashboard permission:", hasDashboardPermission)
-              
-              if (!hasDashboardPermission) {
-                console.log("⚠️ No dashboard access permissions found, detecting appropriate dashboard...")
-                
-                // Determine appropriate dashboard based on assigned permissions
-                let dashboardToAdd = null
-                
-                // Check for GM-level permissions
-                const gmPermissions = [
-                  'can_assign_target_to_sm', 'manage_users', 'can_access_bodyshop',
-                  'gm_targets', 'user_access', 'role_management'
-                ]
-                const hasGMPermissions = gmPermissions.some(p => directPermissionKeys.includes(p))
-                console.log("🔍 Has GM permissions:", hasGMPermissions)
-                
-                // Check for SM-level permissions  
-                const smPermissions = [
-                  'can_upload_ro_sheet', 'ro_billing_dashboard', 'operations_dashboard',
-                  'warranty_dashboard', 'service_booking_dashboard', 'target_report'
-                ]
-                const hasSMPermissions = smPermissions.some(p => directPermissionKeys.includes(p))
-                console.log("🔍 Has SM permissions:", hasSMPermissions)
-                
-                // Check for SA-level permissions
-                const saPermissions = [
-                  'can_access_overview', 'view_profile', 'basic_access'
-                ]
-                const hasSAPermissions = saPermissions.some(p => directPermissionKeys.includes(p))
-                console.log("🔍 Has SA permissions:", hasSAPermissions)
-                
-                // Determine dashboard based on permission level (highest first)
-                if (hasGMPermissions) {
-                  dashboardToAdd = 'can_access_gm_dashboard'
-                  console.log("🎯 Detected GM-level permissions, adding GM dashboard access")
-                } else if (hasSMPermissions) {
-                  dashboardToAdd = 'can_access_sm_dashboard'
-                  console.log("🎯 Detected SM-level permissions, adding SM dashboard access")
-                } else if (hasSAPermissions || directPermissionKeys.length > 0) {
-                  dashboardToAdd = 'can_access_sa_dashboard'
-                  console.log("🎯 Detected basic permissions, adding SA dashboard access")
-                } else {
-                  // Fallback to role-based detection
-                  if (user.role === 'general_manager') {
-                    dashboardToAdd = 'can_access_gm_dashboard'
-                  } else if (user.role === 'service_manager') {
-                    dashboardToAdd = 'can_access_sm_dashboard'
-                  } else {
-                    dashboardToAdd = 'can_access_sa_dashboard'
-                  }
-                  console.log("🎯 Using role-based fallback for dashboard access")
-                }
-                
-                if (dashboardToAdd) {
-                  directPermissionKeys.push(dashboardToAdd)
-                  console.log("✅ Added dashboard permission:", dashboardToAdd)
-                }
+              // Handle different permission formats
+              if (typeof p === 'string') return p
+              if (typeof p === 'object') {
+                return p.permission_key || p.permissionKey || p.key || p.name || null
               }
-              
-              console.log("🎯 Final permissions to set:", directPermissionKeys)
+              return null
+            }).filter(Boolean) // Remove null/undefined values
+            
+            console.log("🔑 Extracted permission keys:", directPermissionKeys)
+            
+            if (directPermissionKeys.length > 0) {
+              console.log("✅ Setting", directPermissionKeys.length, "permissions from database:", directPermissionKeys)
               setPermissions(directPermissionKeys)
-              
-              // Cache the result
+              setLastFetchedEmail(user.email)
               localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
                 permissions: directPermissionKeys,
                 timestamp: Date.now()
               }))
-              console.log("✅ Permissions set and cached successfully")
-              return // Exit early - we found permissions
+              setIsLoading(false)
+              return
             } else {
-              console.log("⚠️ No valid permission keys found")
+              console.log("⚠️ Permission keys are empty after extraction")
             }
           } else {
-            console.log("⚠️ No permissions in direct API response")
+            console.log("⚠️ Database returned 0 permissions for user:", user.email)
+            // Database returned no permissions - only set empty if role is also unrecognized
+            if (rolePermissions.length === 0) {
+              console.log("🚫 Setting empty permissions - custom role with no database permissions")
+              setPermissions([])
+              localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
+                permissions: [],
+                timestamp: Date.now()
+              }))
+            } else {
+              console.log("✅ Keeping role-based permissions:", rolePermissions)
+            }
+            return
           }
-        } else {
-          console.log("⚠️ Direct API failed:", directResponse.status)
         }
       } catch (directErr) {
-        console.log("⚠️ Direct API error:", directErr)
+        console.error("❌ Direct API error:", directErr)
+        // Try fallback
       }
       
       // FALLBACK: Try summary API
-      console.log("🔄 Trying summary API as fallback...")
-      
       try {
         const summaryResponse = await fetch(getApiUrl("/api/rbac/user-roles-summary"))
-        console.log("📡 Summary API Response Status:", summaryResponse.status)
         
         if (summaryResponse.ok) {
           const summaryData = await summaryResponse.json()
@@ -279,20 +225,35 @@ export function usePermissions() {
               }))
             }
           } else {
-            console.log("⚠️ User has no roles assigned")
+            console.log("⚠️ User has no roles assigned in database")
+            // ✅ NEW: If user exists in database but has no roles, give them NO permissions
+            // This forces them to contact admin for proper role assignment
+            console.log("🚫 Setting empty permissions - user needs admin to assign roles")
+            setPermissions([])
+            localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
+              permissions: [],
+              timestamp: Date.now()
+            }))
+          }
+        } else {
+          console.log("📊 User not found in database")
+          // ✅ NEW: If user is not in database at all, check if they have a valid role
+          // Only give role-based permissions if they have a recognized role
+          if (user.role === "general_manager") {
+            console.log("✅ User is GM but not in database, giving role-based permissions")
             // Cache the role-based result
             localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
               permissions: rolePermissions,
               timestamp: Date.now()
             }))
+          } else {
+            console.log("🚫 User not in database and not GM - setting empty permissions")
+            setPermissions([])
+            localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
+              permissions: [],
+              timestamp: Date.now()
+            }))
           }
-        } else {
-          console.log("📊 User not found in database, keeping role-based permissions")
-          // Cache the role-based result
-          localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
-            permissions: rolePermissions,
-            timestamp: Date.now()
-          }))
         }
         } else {
           console.log("⚠️ Summary API failed, keeping role-based permissions")
@@ -313,62 +274,64 @@ export function usePermissions() {
 
     } catch (err) {
       console.error("❌ Error in permission fetching:", err)
-      // Always fallback to some permissions
-      const fallbackPermissions = getWorkingRoleBasedPermissions(user.role)
-      const finalFallback = fallbackPermissions.length > 0 ? fallbackPermissions : getBasicPermissions()
-      setPermissions(finalFallback)
+      // ✅ UPDATED: Only fallback to role permissions for general managers
+      // Service managers and others need database permissions
+      if (user.role === "general_manager") {
+        console.log("✅ Error occurred but user is GM, giving role-based permissions")
+        const fallbackPermissions = getWorkingRoleBasedPermissions(user.role)
+        const finalFallback = fallbackPermissions.length > 0 ? fallbackPermissions : getBasicPermissions()
+        setPermissions(finalFallback)
+      } else {
+        console.log("🚫 Error occurred - only GMs get fallback permissions, setting empty permissions")
+        setPermissions([])
+      }
       setLastFetchedEmail(user.email)
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [user])
 
   // Old method removed - using simplified single API approach
 
   const getBasicPermissions = (): string[] => {
-    // Provide basic permissions for any authenticated user
+    // ✅ UPDATED: Provide basic database permissions for any authenticated user
     // This allows access to basic features without role restrictions
     return [
-      "can_access_overview",
-      "can_view_profile"
+      "overview",
+      "dashboard"
     ]
   }
 
   const getWorkingRoleBasedPermissions = (role: string): string[] => {
-    // Working role-based permissions that actually provide access
-    console.log("🎯 Getting permissions for role:", role)
     switch (role) {
       case "general_manager":
         return [
-          "can_access_gm_dashboard",
-          "can_access_overview",
-          "can_access_bodyshop", 
-          "can_upload_ro_sheet",
-          "can_assign_target_to_sm",
+          "dashboard",
+          "overview",
           "ro_billing_dashboard",
           "operations_dashboard",
           "warranty_dashboard",
-          "service_booking_dashboard"
+          "service_booking_dashboard",
+          "manage_users",
+          "manage_roles",
+          "ro_billing_upload",
+          "operations_upload",
+          "warranty_upload",
+          "service_booking_upload",
+          "ro_billing_report",
+          "operations_report",
+          "warranty_report",
+          "service_booking_report",
+          "target_report"
         ]
       case "service_manager":
-        return [
-          "can_access_sm_dashboard",
-          "can_access_overview",
-          "can_upload_ro_sheet",
-          "ro_billing_dashboard",
-          "operations_dashboard",
-          "warranty_dashboard",
-          "service_booking_dashboard"
-        ]
+        return []
       case "service_advisor":
         return [
-          "can_access_sa_dashboard",
-          "can_access_overview"
+          "dashboard",
+          "overview"
         ]
       default:
-        console.log("🔧 Custom role detected:", role, "- will use database permissions only")
-        // For custom roles, return empty array - let database permissions take precedence
-        // This ensures custom role permissions from database are not overridden
         return []
     }
   }
@@ -381,22 +344,22 @@ export function usePermissions() {
     return getBasicPermissions()
   }
 
-  const hasPermission = (permissionKey: string): boolean => {
+  const hasPermission = useCallback((permissionKey: string): boolean => {
     return permissions.includes(permissionKey)
-  }
+  }, [permissions])
 
-  const hasAnyPermission = (permissionKeys: string[]): boolean => {
+  const hasAnyPermission = useCallback((permissionKeys: string[]): boolean => {
     return permissionKeys.some(key => hasPermission(key))
-  }
+  }, [hasPermission])
 
-  const refetchPermissions = async () => {
+  const refetchPermissions = useCallback(async () => {
     // Clear cache and refetch
     if (user) {
       localStorage.removeItem(`permissions_${user.email}`)
       setLastFetchedEmail(null)
       await fetchUserPermissions()
     }
-  }
+  }, [user, fetchUserPermissions])
 
   const debugPermissions = () => {
     console.log("🐛 Permission Debug Info:")
@@ -405,9 +368,9 @@ export function usePermissions() {
     console.log("- Permission Count:", permissions.length)
     console.log("- Is Loading:", isLoading)
     console.log("- Last Fetched Email:", lastFetchedEmail)
-    console.log("- Has GM Dashboard:", hasPermission('can_access_gm_dashboard'))
-    console.log("- Has SM Dashboard:", hasPermission('can_access_sm_dashboard'))
-    console.log("- Has SA Dashboard:", hasPermission('can_access_sa_dashboard'))
+    console.log("- Has GM Permissions:", hasPermission('manage_users') || hasPermission('manage_roles'))
+    console.log("- Has SM Permissions:", hasPermission('ro_billing_dashboard') || hasPermission('operations_dashboard'))
+    console.log("- Has SA Permissions:", hasPermission('dashboard') || hasPermission('overview'))
     console.log("- Cache Check:")
     const cached = localStorage.getItem(`permissions_${user?.email}`)
     if (cached) {
@@ -446,6 +409,30 @@ export function usePermissions() {
     }
   }
 
+  // Clear old cached permissions on component mount (once)
+  useEffect(() => {
+    const allKeys = Object.keys(localStorage)
+    allKeys.forEach(key => {
+      if (key.startsWith('permissions_')) {
+        const cached = localStorage.getItem(key)
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached)
+            const cacheAge = Date.now() - parsed.timestamp
+            // Clear cache older than 5 minutes OR if permissions are empty
+            if (cacheAge > 300000 || (parsed.permissions && parsed.permissions.length === 0)) {
+              console.log("🗑️ Clearing stale/empty permission cache:", key)
+              localStorage.removeItem(key)
+            }
+          } catch (e) {
+            // Invalid cache, remove it
+            localStorage.removeItem(key)
+          }
+        }
+      }
+    })
+  }, [])
+
   const testRBACAPI = async () => {
     if (!user) return
     
@@ -469,6 +456,38 @@ export function usePermissions() {
     }
   }
 
+  const clearCacheAndRefresh = () => {
+    if (!user) return
+    
+    console.log("🧹 Clearing cache and forcing refresh for user:", user.email)
+    
+    // Clear ALL permission caches to be safe
+    const allKeys = Object.keys(localStorage)
+    let clearedCount = 0
+    
+    allKeys.forEach(key => {
+      if (key.startsWith('permissions_')) {
+        localStorage.removeItem(key)
+        clearedCount++
+        console.log("🗑️ Cleared cache:", key)
+      }
+    })
+    
+    console.log(`✅ Cleared ${clearedCount} permission cache entries`)
+    
+    // Reset state completely
+    setLastFetchedEmail("")
+    setPermissions([])
+    setIsLoading(true)
+    setError(null)
+    
+    // Force refetch with delay
+    setTimeout(() => {
+      console.log("🔄 Forcing fresh permission fetch...")
+      refetchPermissions()
+    }, 200)
+  }
+
   return {
     permissions,
     isLoading,
@@ -478,6 +497,7 @@ export function usePermissions() {
     refetch: refetchPermissions,
     debug: debugPermissions,
     testAPI: testRBACAPI,
-    forceRefresh
+    forceRefresh,
+    clearCacheAndRefresh
   }
 }

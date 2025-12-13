@@ -44,8 +44,8 @@ export default function ServiceAdvisorDashboard() {
     loadData()
   }, [user?.id])
 
-  // Check permissions first, then fallback to role
-  const canAccess = hasPermission('can_access_sa_dashboard') || user?.role === "service_advisor"
+  // ✅ UPDATED: Check database permissions first, then fallback to role
+  const canAccess = hasPermission('dashboard') || hasPermission('overview') || user?.role === "service_advisor"
   
   if (permissionsLoading) {
     return (
