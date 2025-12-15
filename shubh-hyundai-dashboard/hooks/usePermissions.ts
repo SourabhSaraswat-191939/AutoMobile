@@ -16,30 +16,21 @@ export function usePermissions() {
   const [permissions, setPermissions] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [lastFetchedEmail, setLastFetchedEmail] = useState<string | null>(null)
 
   useEffect(() => {
     if (user) {
-      // Check if we already cached permissions for this user
-      if (lastFetchedEmail === user.email && permissions.length > 0) {
-        setIsLoading(false)
-        return
-      }
-      
-      // ✅ IMMEDIATE ACCESS: Set role-based permissions synchronously first
+      // ✅ IMMEDIATE ACCESS: Set role-based permissions synchronously first for GMs / role-based flows
       const rolePermissions = getWorkingRoleBasedPermissions(user.role)
       if (rolePermissions.length > 0) {
         setPermissions(rolePermissions)
-        setIsLoading(false) // ✅ Set loading to false immediately for role-based access
-        setLastFetchedEmail(user.email)
       }
       
-      // Then enhance with database permissions asynchronously
+      // Then enhance with **fresh** database permissions asynchronously
+      // (No long-lived cache so new permissions apply immediately after GM updates)
       fetchUserPermissions()
     } else {
       setPermissions([])
       setIsLoading(false)
-      setLastFetchedEmail(null)
     }
   }, [user])
 
@@ -47,32 +38,14 @@ export function usePermissions() {
     if (!user) return
 
     try {
-      // ✅ Don't set loading to true if we already have role-based permissions
-      const hasRolePermissions = permissions.length > 0
-      if (!hasRolePermissions) {
-        setIsLoading(true)
-      }
+      // Always show a quick loading state when re-fetching from backend
+      setIsLoading(true)
       setError(null)
 
-      // Check for valid cache
-      const cachedPermissions = localStorage.getItem(`permissions_${user.email}`)
-      if (cachedPermissions) {
-        const parsed = JSON.parse(cachedPermissions)
-        const cacheAge = Date.now() - parsed.timestamp
-        
-        // Use cache if less than 5 minutes old
-        if (cacheAge < 300000) {
-          setPermissions(parsed.permissions)
-          setLastFetchedEmail(user.email)
-          setIsLoading(false)
-          return
-        }
-      }
+      // Role permissions may already be set in useEffect for immediate access
+      // This function enhances/replaces them with latest database permissions
 
-      // Role permissions are already set in useEffect for immediate access
-      // This function now only enhances with database permissions
-
-      // Try to enhance with database permissions (optional)
+      // Try to enhance with database permissions (primary path)
       try {
         const directApiUrl = getApiUrl(`/api/rbac/users/email/${encodeURIComponent(user.email)}/permissions`)
         console.log("🔍 Fetching permissions for:", user.email, "Role:", user.role)
@@ -110,11 +83,6 @@ export function usePermissions() {
             if (directPermissionKeys.length > 0) {
               console.log("✅ Setting", directPermissionKeys.length, "permissions from database:", directPermissionKeys)
               setPermissions(directPermissionKeys)
-              setLastFetchedEmail(user.email)
-              localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
-                permissions: directPermissionKeys,
-                timestamp: Date.now()
-              }))
               setIsLoading(false)
               return
             } else {
@@ -127,10 +95,6 @@ export function usePermissions() {
             if (currentRolePermissions.length === 0) {
               console.log("🚫 Setting empty permissions - custom role with no database permissions")
               setPermissions([])
-              localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
-                permissions: [],
-                timestamp: Date.now()
-              }))
             } else {
               console.log("✅ Keeping role-based permissions:", currentRolePermissions)
             }
@@ -213,28 +177,12 @@ export function usePermissions() {
               if (allPermissions.length >= currentRolePermissions.length) {
                 console.log("✅ Using enhanced database permissions")
                 setPermissions(allPermissions)
-                
-                // Cache the enhanced result
-                localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
-                  permissions: allPermissions,
-                  timestamp: Date.now()
-                }))
               } else {
                 console.log("📊 Role-based permissions are better, keeping them")
-                // Cache the role-based result
-                localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
-                  permissions: currentRolePermissions,
-                  timestamp: Date.now()
-                }))
               }
             } else {
               console.log("⚠️ No permissions found in database roles")
-              // Cache the role-based result
               const currentRolePermissions = getWorkingRoleBasedPermissions(user.role)
-              localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
-                permissions: currentRolePermissions,
-                timestamp: Date.now()
-              }))
             }
           } else {
             console.log("⚠️ User has no roles assigned in database")
@@ -242,10 +190,6 @@ export function usePermissions() {
             // This forces them to contact admin for proper role assignment
             console.log("🚫 Setting empty permissions - user needs admin to assign roles")
             setPermissions([])
-            localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
-              permissions: [],
-              timestamp: Date.now()
-            }))
           }
         } else {
           console.log("📊 User not found in database")
@@ -253,38 +197,19 @@ export function usePermissions() {
           // Only give role-based permissions if they have a recognized role
           if (user.role === "general_manager") {
             console.log("✅ User is GM but not in database, giving role-based permissions")
-            // Cache the role-based result
             const currentRolePermissions = getWorkingRoleBasedPermissions(user.role)
-            localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
-              permissions: currentRolePermissions,
-              timestamp: Date.now()
-            }))
           } else {
             console.log("🚫 User not in database and not GM - setting empty permissions")
             setPermissions([])
-            localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
-              permissions: [],
-              timestamp: Date.now()
-            }))
           }
         }
         } else {
           console.log("⚠️ Summary API failed, keeping role-based permissions")
-          // Cache the role-based result
           const currentRolePermissions = getWorkingRoleBasedPermissions(user.role)
-          localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
-            permissions: currentRolePermissions,
-            timestamp: Date.now()
-          }))
         }
       } catch (summaryErr) {
         console.log("⚠️ Summary API error, keeping role-based permissions:", summaryErr)
-        // Cache the role-based result
         const currentRolePermissions = getWorkingRoleBasedPermissions(user.role)
-        localStorage.setItem(`permissions_${user.email}`, JSON.stringify({
-          permissions: currentRolePermissions,
-          timestamp: Date.now()
-        }))
       }
 
     } catch (err) {
@@ -300,7 +225,6 @@ export function usePermissions() {
         console.log("🚫 Error occurred - only GMs get fallback permissions, setting empty permissions")
         setPermissions([])
       }
-      setLastFetchedEmail(user.email)
     } finally {
       setIsLoading(false)
     }
@@ -380,8 +304,6 @@ export function usePermissions() {
   const refetchPermissions = useCallback(async () => {
     // Clear cache and refetch
     if (user) {
-      localStorage.removeItem(`permissions_${user.email}`)
-      setLastFetchedEmail(null)
       await fetchUserPermissions()
     }
   }, [user, fetchUserPermissions])
@@ -392,20 +314,9 @@ export function usePermissions() {
     console.log("- Permissions:", permissions)
     console.log("- Permission Count:", permissions.length)
     console.log("- Is Loading:", isLoading)
-    console.log("- Last Fetched Email:", lastFetchedEmail)
     console.log("- Has GM Permissions:", hasPermission('manage_users') || hasPermission('manage_roles'))
     console.log("- Has SM Permissions:", hasPermission('ro_billing_dashboard') || hasPermission('operations_dashboard'))
     console.log("- Has SA Permissions:", hasPermission('dashboard') || hasPermission('overview'))
-    console.log("- Cache Check:")
-    const cached = localStorage.getItem(`permissions_${user?.email}`)
-    if (cached) {
-      const parsed = JSON.parse(cached)
-      console.log("  - Cached permissions:", parsed.permissions)
-      console.log("  - Cache age:", (Date.now() - parsed.timestamp) / 1000, "seconds")
-    } else {
-      console.log("  - No cache found")
-    }
-    
     // Test direct API call
     if (user?.email) {
       console.log("🧪 Testing direct API call...")
@@ -427,36 +338,10 @@ export function usePermissions() {
   const forceRefresh = async () => {
     if (user?.email) {
       console.log("🔄 Force refreshing permissions...")
-      localStorage.removeItem(`permissions_${user.email}`)
       setPermissions([])
-      setLastFetchedEmail(null)
       await fetchUserPermissions()
     }
   }
-
-  // Clear old cached permissions on component mount (once)
-  useEffect(() => {
-    const allKeys = Object.keys(localStorage)
-    allKeys.forEach(key => {
-      if (key.startsWith('permissions_')) {
-        const cached = localStorage.getItem(key)
-        if (cached) {
-          try {
-            const parsed = JSON.parse(cached)
-            const cacheAge = Date.now() - parsed.timestamp
-            // Clear cache older than 5 minutes OR if permissions are empty
-            if (cacheAge > 300000 || (parsed.permissions && parsed.permissions.length === 0)) {
-              console.log("🗑️ Clearing stale/empty permission cache:", key)
-              localStorage.removeItem(key)
-            }
-          } catch (e) {
-            // Invalid cache, remove it
-            localStorage.removeItem(key)
-          }
-        }
-      }
-    })
-  }, [])
 
   const testRBACAPI = async () => {
     if (!user) return
@@ -486,22 +371,7 @@ export function usePermissions() {
     
     console.log("🧹 Clearing cache and forcing refresh for user:", user.email)
     
-    // Clear ALL permission caches to be safe
-    const allKeys = Object.keys(localStorage)
-    let clearedCount = 0
-    
-    allKeys.forEach(key => {
-      if (key.startsWith('permissions_')) {
-        localStorage.removeItem(key)
-        clearedCount++
-        console.log("🗑️ Cleared cache:", key)
-      }
-    })
-    
-    console.log(`✅ Cleared ${clearedCount} permission cache entries`)
-    
     // Reset state completely
-    setLastFetchedEmail("")
     setPermissions([])
     setIsLoading(true)
     setError(null)

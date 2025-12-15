@@ -3,48 +3,29 @@
 import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { usePermissions } from "@/hooks/usePermissions"
+import { useDashboardData } from "@/hooks/useDashboardData"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Upload, AlertCircle, FileText, Calendar, CheckCircle } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { getApiUrl } from "@/lib/config"
 
 export default function ServiceBookingPage() {
   const { user } = useAuth()
   const { hasPermission } = usePermissions()
   const router = useRouter()
   const [data, setData] = useState<any[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  
+  // ✅ Use shared dashboard cache so Service Booking data is fetched once and reused
+  const {
+    data: dashboardData,
+    isLoading,
+    error,
+  } = useDashboardData({ dataType: "service_booking" })
 
   useEffect(() => {
-    const loadData = async () => {
-      if (!user?.email || !user?.city) return
-
-      setIsLoading(true)
-      setError(null)
-
-      try {
-        const response = await fetch(
-          getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=service_booking`)
-        )
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch data")
-        }
-
-        const result = await response.json()
-        setData(Array.isArray(result.data) ? result.data : [])
-      } catch (err) {
-        setError("Failed to load data. Please try again.")
-        console.error(err)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    loadData()
-  }, [user?.email, user?.city])
+    const dataArray = Array.isArray(dashboardData?.data) ? dashboardData.data : []
+    setData(dataArray)
+  }, [dashboardData])
   
   // Check permission first
   // ✅ UPDATED: Single permission check - no need for dual checks

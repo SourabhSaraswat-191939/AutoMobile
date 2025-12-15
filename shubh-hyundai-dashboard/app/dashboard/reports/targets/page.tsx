@@ -3,8 +3,7 @@
 import React, { useEffect, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { usePermissions } from "@/hooks/usePermissions"
-import { getRoBillingReports } from "@/lib/api"
-import { getApiUrl } from "@/lib/config"
+import { useDashboardData } from "@/hooks/useDashboardData"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -412,8 +411,6 @@ export default function AdvisorTargetsReportPage() {
   const [cityTarget, setCityTarget] = useState<any | null>(null)
   const [assignments, setAssignments] = useState<any[]>([])
   const [roRows, setRoRows] = useState<any[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedAdvisors, setSelectedAdvisors] = useState<string[]>([])
   const [expandedAdvisor, setExpandedAdvisor] = useState<string | null>(null)
@@ -434,6 +431,13 @@ export default function AdvisorTargetsReportPage() {
 
   const remainingDays = remainingWorkingDaysFromToday()
 
+  // ✅ Use shared dashboard cache so RO Billing data is fetched once and reused
+  const {
+    data: dashboardData,
+    isLoading: dashboardLoading,
+    error: dashboardError,
+  } = useDashboardData({ dataType: "ro_billing" })
+
   // Check if targets are already distributed for current month
   const areTargetsDistributed = () => {
     if (!user?.city || !cityTarget) return false
@@ -451,45 +455,26 @@ export default function AdvisorTargetsReportPage() {
 
   const targetsAlreadyDistributed = areTargetsDistributed()
 
+  // Load RO rows and advisors from cached dashboard data + localStorage targets
   useEffect(() => {
-    async function load() {
-      if (!user?.city) return
-      setIsLoading(true)
-      setError(null)
-      try {
-        const response = await fetch(
-          getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=ro_billing`)
-        )
-        
-        if (!response.ok) {
-          throw new Error("Failed to fetch RO Billing data")
-        }
-        
-        const result = await response.json()
-        const roData = Array.isArray(result.data) ? result.data : []
-        setRoRows(roData)
-        
-        const uniqueAdvisorNames = Array.from(
-          new Set(roData.map((r: any) => r.serviceAdvisor).filter(Boolean))
-        )
-        const advisorList = uniqueAdvisorNames.map((name: any) => ({ name }))
-        setAdvisors(advisorList)
-        
-        const rawTarget = localStorage.getItem(GM_TARGETS_KEY)
-        const targets = rawTarget ? JSON.parse(rawTarget) : []
-        setCityTarget(targets.find((t: any) => t.city === user.city) || null)
-        
-        const rawAssign = localStorage.getItem(ADVISOR_ASSIGNMENTS_KEY)
-        setAssignments(rawAssign ? JSON.parse(rawAssign) : [])
-      } catch (err) {
-        console.error("Error loading data:", err)
-        setError("Failed to load data. Please check if RO Billing data is uploaded.")
-      } finally {
-        setIsLoading(false)
-      }
-    }
-    load()
-  }, [user?.city, user?.email])
+    if (!user?.city) return
+
+    const roData = Array.isArray(dashboardData?.data) ? dashboardData.data : []
+    setRoRows(roData)
+
+    const uniqueAdvisorNames = Array.from(
+      new Set(roData.map((r: any) => r.serviceAdvisor).filter(Boolean))
+    )
+    const advisorList = uniqueAdvisorNames.map((name: any) => ({ name }))
+    setAdvisors(advisorList)
+
+    const rawTarget = localStorage.getItem(GM_TARGETS_KEY)
+    const targets = rawTarget ? JSON.parse(rawTarget) : []
+    setCityTarget(targets.find((t: any) => t.city === user.city) || null)
+
+    const rawAssign = localStorage.getItem(ADVISOR_ASSIGNMENTS_KEY)
+    setAssignments(rawAssign ? JSON.parse(rawAssign) : [])
+  }, [user?.city, dashboardData])
 
   const handleDistributeClick = () => {
     if (!user?.city) {
@@ -735,7 +720,7 @@ export default function AdvisorTargetsReportPage() {
         </div>
 
         {/* Summary Stats */}
-        {!isLoading && !error && advisors.length > 0 && (
+        {!dashboardLoading && !dashboardError && advisors.length > 0 && (
           <SummaryStats 
             advisors={advisors}
             assignments={assignments}
@@ -819,7 +804,7 @@ export default function AdvisorTargetsReportPage() {
           </CardHeader>
 
           <CardContent className="p-4 md:p-6">
-            {isLoading ? (
+            {dashboardLoading ? (
               <div className="text-center py-12">
                 <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-100 mb-4">
                   <div className="animate-spin">
@@ -828,10 +813,12 @@ export default function AdvisorTargetsReportPage() {
                 </div>
                 <p className="text-gray-600">Loading advisor data...</p>
               </div>
-            ) : error ? (
+            ) : dashboardError ? (
               <div className="text-center py-12">
                 <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-                <p className="text-red-800 font-semibold">{error}</p>
+                <p className="text-red-800 font-semibold">
+                  {dashboardError || "Failed to load data. Please upload RO Billing data to see advisors and their performance."}
+                </p>
                 <p className="text-red-700 mt-2">Please upload RO Billing data to see advisors and their performance.</p>
               </div>
             ) : displayAdvisors.length === 0 ? (
@@ -864,7 +851,7 @@ export default function AdvisorTargetsReportPage() {
             )}
 
             {/* Legend */}
-            {!isLoading && !error && displayAdvisors.length > 0 && (
+            {!dashboardLoading && !dashboardError && displayAdvisors.length > 0 && (
               <div className="mt-8 pt-6 border-t border-gray-200">
                 <h4 className="font-semibold text-gray-900 mb-3">Performance Indicators</h4>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

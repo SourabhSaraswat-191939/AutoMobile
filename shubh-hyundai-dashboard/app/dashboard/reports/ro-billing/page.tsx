@@ -3,12 +3,12 @@
 import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { usePermissions } from "@/hooks/usePermissions"
+import { useDashboardData } from "@/hooks/useDashboardData"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Upload, AlertCircle, FileText, Search } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { useRouter } from "next/navigation"
-import { getApiUrl } from "@/lib/config"
 
 export default function ROBillingPage() {
   const { user } = useAuth()
@@ -17,39 +17,20 @@ export default function ROBillingPage() {
   const [data, setData] = useState<any[]>([])
   const [filteredData, setFilteredData] = useState<any[]>([])
   const [searchTerm, setSearchTerm] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  
+  // ✅ Use shared dashboard cache so RO Billing data is fetched once and reused
+  const {
+    data: dashboardData,
+    isLoading,
+    error,
+  } = useDashboardData({ dataType: "ro_billing" })
 
+  // Sync local table state with cached dashboard data
   useEffect(() => {
-    const loadData = async () => {
-      if (!user?.email || !user?.city) return
-
-      setIsLoading(true)
-      setError(null)
-
-      try {
-        const response = await fetch(
-          getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=ro_billing`)
-        )
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch data")
-        }
-
-        const result = await response.json()
-        const dataArray = Array.isArray(result.data) ? result.data : []
-        setData(dataArray)
-        setFilteredData(dataArray)
-      } catch (err) {
-        setError("Failed to load data. Please try again.")
-        console.error(err)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    loadData()
-  }, [user?.email, user?.city])
+    const dataArray = Array.isArray(dashboardData?.data) ? dashboardData.data : []
+    setData(dataArray)
+    setFilteredData(dataArray)
+  }, [dashboardData])
 
   // Search filter effect
   useEffect(() => {
@@ -139,7 +120,7 @@ export default function ROBillingPage() {
             <div className="text-center py-8 text-muted-foreground">Loading...</div>
           )}
           {!isLoading && error && (
-            <div className="text-center py-8 text-red-600">{error}</div>
+          <div className="text-center py-8 text-red-600">{error}</div>
           )}
           {!isLoading && !error && data.length === 0 && (
             <div className="text-center py-8">
