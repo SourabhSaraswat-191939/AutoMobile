@@ -103,13 +103,19 @@ export function usePermissions() {
         const directApiUrl = getApiUrl(`/api/rbac/users/email/${encodeURIComponent(user.email)}/permissions`)
         console.log("🔍 Fetching permissions for:", user.email, "Role:", user.role)
         console.log("🌐 API URL:", directApiUrl)
+        console.log("🌍 Window location:", typeof window !== 'undefined' ? window.location.href : 'N/A')
+        console.log("🔧 Environment:", {
+          NODE_ENV: process.env.NODE_ENV,
+          NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'not set'
+        })
         
         const directResponse = await fetch(directApiUrl, { 
           cache: 'no-cache',
           credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
-          }
+          },
+          mode: 'cors' // Explicitly set CORS mode
         })
         console.log("📡 API Response Status:", directResponse.status)
         
@@ -163,10 +169,24 @@ export function usePermissions() {
         }
       } catch (directErr: any) {
         console.error("❌ Direct API error:", directErr)
+        console.error("❌ Error type:", directErr?.constructor?.name)
+        console.error("❌ Error message:", directErr?.message)
+        
         // Check if it's a network error (CORS, connection refused, etc.)
-        if (directErr instanceof TypeError && directErr.message.includes('fetch')) {
+        const isFetchError = directErr instanceof TypeError && (
+          directErr.message.includes('fetch') || 
+          directErr.message.includes('Failed to fetch') ||
+          directErr.message.includes('NetworkError') ||
+          directErr.message.includes('Network request failed')
+        )
+        
+        if (isFetchError) {
+          const apiUrl = getApiUrl(`/api/rbac/users/email/${encodeURIComponent(user.email)}/permissions`)
           console.error("🌐 Network error - API may be unreachable or CORS issue")
-          setError(`Network error: Unable to reach API. Please check your connection and that the backend is running.`)
+          console.error("🔗 Attempted URL:", apiUrl)
+          console.error("💡 Is backend running? Check:", apiUrl)
+          setError(`Network error: Unable to reach API at ${apiUrl}. Please check your connection and that the backend is running.`)
+          
           // Fall back to role-based permissions for now
           const fallbackPerms = getWorkingRoleBasedPermissions(user.role)
           if (fallbackPerms.length > 0) {
@@ -335,6 +355,13 @@ export function usePermissions() {
     } finally {
       setIsLoading(false)
     }
+
+    const cachedPermissions = permissionCache.get(fetchKey)?.perms
+    if (Array.isArray(cachedPermissions)) {
+      return cachedPermissions
+    }
+
+    return Array.isArray(permissions) ? permissions : []
     })()
 
     inFlight.set(fetchKey, promise)
@@ -357,47 +384,29 @@ export function usePermissions() {
   }
 
   const getWorkingRoleBasedPermissions = (role: string): string[] => {
-    switch (role) {
-      case "general_manager":
-        return [
-          "dashboard",
-          "overview",
-          "ro_billing_dashboard",
-          "operations_dashboard",
-          "warranty_dashboard",
-          "service_booking_dashboard",
-          "manage_users",
-          "manage_roles",
-          "ro_billing_upload",
-          "operations_upload",
-          "warranty_upload",
-          "service_booking_upload",
-          "ro_billing_report",
-          "operations_report",
-          "warranty_report",
-          "service_booking_report",
-          "target_report"
-        ]
-      case "service_manager":
-        return [
-          "dashboard",
-          "ro_billing_dashboard",
-          "operations_dashboard", 
-          "warranty_dashboard",
-          "service_booking_dashboard",
-          "ro_billing_upload",
-          "operations_upload",
-          "warranty_upload",
-          "service_booking_upload"
-        ]
-      case "service_advisor":
-        return [
-          "dashboard",
-          "overview"
-        ]
-      default:
-        return []
+    if (role === "general_manager") {
+      return [
+        "dashboard",
+        "overview",
+        "ro_billing_dashboard",
+        "operations_dashboard",
+        "warranty_dashboard",
+        "service_booking_dashboard",
+        "manage_users",
+        "manage_roles",
+        "ro_billing_upload",
+        "operations_upload",
+        "warranty_upload",
+        "service_booking_upload",
+        "ro_billing_report",
+        "operations_report",
+        "warranty_report",
+        "service_booking_report",
+        "target_report"
+      ]
     }
+
+    return []
   }
 
   const getRoleBasedPermissions = (role: string): string[] => {
@@ -430,8 +439,9 @@ export function usePermissions() {
   const debugPermissions = () => {
     console.log("🐛 Permission Debug Info:")
     console.log("- User:", user?.email, "Role:", user?.role)
-    console.log("- Permissions:", permissions)
-    console.log("- Permission Count:", permissions.length)
+    const permissionList = Array.isArray(permissions) ? permissions : []
+    console.log("- Permissions:", permissionList)
+    console.log("- Permission Count:", permissionList.length)
     console.log("- Is Loading:", isLoading)
     console.log("- Has GM Permissions:", hasPermission('manage_users') || hasPermission('manage_roles'))
     console.log("- Has SM Permissions:", hasPermission('ro_billing_dashboard') || hasPermission('operations_dashboard'))

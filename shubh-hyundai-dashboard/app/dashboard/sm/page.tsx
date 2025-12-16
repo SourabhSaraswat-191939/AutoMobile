@@ -21,6 +21,17 @@ type DataType = "ro_billing" | "operations" | "warranty" | "service_booking" | "
 
 const COLORS = ['#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
 
+const SM_REQUIRED_PERMISSIONS = [
+  'ro_billing_dashboard',
+  'operations_dashboard',
+  'ro_billing_upload',
+  'operations_upload',
+  'warranty_dashboard',
+  'service_booking_dashboard',
+  'service_booking_upload',
+  'repair_order_list_dashboard'
+]
+
 // Format R/O Date function
 const formatRODate = (roDate: any): string => {
   if (!roDate) return 'N/A'
@@ -1109,8 +1120,8 @@ const AdvisorOperationsSection = ({ user }: { user: any }) => {
 }
 
 export default function SMDashboard() {
-  const { user } = useAuth()
-  const { hasPermission } = usePermissions()
+  const { user, isLoading: authLoading } = useAuth()
+  const { hasPermission, permissions, isLoading: permissionsLoading } = usePermissions()
   const { markForRefresh } = useDashboard()
   const router = useRouter()
   
@@ -1129,6 +1140,7 @@ export default function SMDashboard() {
     autoFetch: selectedDataType !== "operations", // Don't auto-fetch for operations
     backgroundRevalidation: selectedDataType !== "operations" // No background revalidation for operations
   })
+  
   const [workTypeData, setWorkTypeData] = useState([
     { name: 'Paid Service', value: 0, color: '#0ea5e9', description: 'Regular paid services' },
     { name: 'Free Service', value: 0, color: '#10b981', description: 'Complimentary services' },
@@ -1139,27 +1151,20 @@ export default function SMDashboard() {
   const [hoveredAdvisor, setHoveredAdvisor] = useState<string | null>(null)
   const [showWithTax, setShowWithTax] = useState<boolean>(false)
   const [workTypeDataFetched, setWorkTypeDataFetched] = useState(false)
-  
-  // Service Booking filter states
   const [dateFilter, setDateFilter] = useState('')
   const [selectedWorkType, setSelectedWorkType] = useState('all')
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({})
 
-  // ALL useEffect hooks must be declared here (before any conditional returns)
-  
-  // ✅ UPDATED: Check database permissions for SM dashboard access
-  useEffect(() => {
-    if (!hasPermission('ro_billing_dashboard') && !hasPermission('operations_dashboard') && 
-        !hasPermission('ro_billing_upload') && !hasPermission('operations_upload') &&
-        !hasPermission('warranty_dashboard') && !hasPermission('service_booking_dashboard') &&
-        !hasPermission('repair_order_list_dashboard')) {
-      console.log('❌ User does not have permission to access SM dashboard')
-      // Don't redirect automatically to prevent infinite loops
-      // Just show the access denied UI instead
-    }
-  }, [hasPermission])
+  const isGeneralManager = user?.role === "general_manager"
+  const hasAnyPermissions = permissions.length > 0
+  const hasSMAccess = isGeneralManager || SM_REQUIRED_PERMISSIONS.some(permission => hasPermission(permission))
 
-  // Clear work type data when user changes
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace("/login")
+    }
+  }, [authLoading, user, router])
+
   useEffect(() => {
     setWorkTypeDataFetched(false)
   }, [user?.email])
@@ -1167,15 +1172,7 @@ export default function SMDashboard() {
   // Fetch work type data for Average dashboard - only once when component mounts
   useEffect(() => {
     const fetchWorkTypeData = async () => {
-      if (!user?.email || !user?.city) return
-
-      // ✅ Check permissions before making API call
-      if (!hasPermission('ro_billing_dashboard') && !hasPermission('operations_dashboard') && 
-          !hasPermission('ro_billing_upload') && !hasPermission('operations_upload') && 
-          !hasPermission('warranty_dashboard') && !hasPermission('service_booking_dashboard') && 
-          !hasPermission('dashboard')) {
-        return
-      }
+      if (!user?.email || !user?.city || !hasSMAccess) return
       
       try {
         const apiUrl = getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=average`)
@@ -1210,13 +1207,11 @@ export default function SMDashboard() {
     }
 
     // Only fetch once when user data is available
-    if (user?.email && user?.city && !workTypeDataFetched && 
-        (hasPermission('ro_billing_dashboard') || hasPermission('operations_dashboard') || 
-         hasPermission('warranty_dashboard') || hasPermission('service_booking_dashboard') || hasPermission('dashboard'))) {
+    if (user?.email && user?.city && !workTypeDataFetched && hasSMAccess) {
       fetchWorkTypeData()
       setWorkTypeDataFetched(true)
     }
-  }, [user?.email, user?.city, workTypeDataFetched])
+  }, [user?.email, user?.city, workTypeDataFetched, hasSMAccess, hasPermission])
 
   // Set default to latest date for RO Billing
   useEffect(() => {
@@ -1242,11 +1237,67 @@ export default function SMDashboard() {
     setExpandedCards({})
   }, [dateFilter])
 
-  // ✅ UPDATED: Check permissions only - all service managers need proper permissions
-  if (!hasPermission('ro_billing_dashboard') && !hasPermission('operations_dashboard') && 
-      !hasPermission('ro_billing_upload') && !hasPermission('operations_upload') && 
-      !hasPermission('warranty_dashboard') && !hasPermission('service_booking_dashboard') && 
-      !hasPermission('dashboard')) {
+  if (authLoading || permissionsLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p>Loading permissions...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return null
+  }
+
+  // ✅ Check if user has NO permissions at all - show access denied
+  if (!hasAnyPermissions && !isGeneralManager) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-red-50 to-orange-100">
+        <div className="text-center max-w-lg mx-auto p-8">
+          <div className="mb-8">
+            <div className="w-24 h-24 mx-auto bg-red-100 rounded-full flex items-center justify-center">
+              <svg className="w-12 h-12 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H10m2-5V9m0 0V7m0 2h2m-2 0H10M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+          </div>
+          <h2 className="text-3xl font-bold text-red-800 mb-4">
+            Access Denied
+          </h2>
+          <p className="text-lg text-red-700 mb-6">
+            You have not been assigned any permissions.
+          </p>
+          <p className="text-sm text-red-600 mb-6">
+            Please contact your administrator to get the appropriate permissions assigned to your role.
+          </p>
+          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200 mb-6">
+            <p className="text-sm text-gray-600 mb-2">
+              <strong>Email:</strong> {user?.email}
+            </p>
+            <p className="text-sm text-gray-600 mb-2">
+              <strong>Role:</strong> {user?.role || 'Not assigned'}
+            </p>
+            <p className="text-sm text-gray-600">
+              <strong>Permissions:</strong> 0 (No access)
+            </p>
+          </div>
+          <Button 
+            onClick={() => router.push('/dashboard/unauthorized')}
+            variant="destructive"
+            className="w-full"
+          >
+            View Details
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  // ✅ Check if user has SM-specific permissions - block if they don't have any relevant permissions
+  if (!hasSMAccess) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Card className="w-96">
@@ -1255,17 +1306,17 @@ export default function SMDashboard() {
           </CardHeader>
           <CardContent className="text-center">
             <p className="text-gray-600 mb-4">
-              You have not been assigned any permissions.
+              You don't have permission to access the Service Manager dashboard.
             </p>
             <p className="text-sm text-gray-500 mb-6">
-              Please reach out to your admin for permissions.
+              Please contact your administrator to get the appropriate permissions.
             </p>
             <Button 
-              onClick={() => router.push('/dashboard')}
+              onClick={() => router.push('/dashboard/unauthorized')}
               variant="outline"
               className="w-full"
             >
-              Go Back to Main Dashboard
+              View Details
             </Button>
           </CardContent>
         </Card>

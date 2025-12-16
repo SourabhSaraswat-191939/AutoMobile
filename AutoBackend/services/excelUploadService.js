@@ -238,7 +238,7 @@ class ExcelUploadService {
     // To improve reliability, we avoid wrapping them in a MongoDB transaction and
     // let individual upserts succeed independently.
     const useTransaction = fileMetadata.file_type !== 'repair_order_list';
-    let session: any = null;
+    let session = null;
 
     if (useTransaction) {
       session = await mongoose.startSession();

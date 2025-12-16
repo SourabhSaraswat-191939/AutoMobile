@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useDashboard, DataType, DashboardData } from '@/contexts/DashboardContext'
 import { useAuth } from '@/lib/auth-context'
+import { usePermissions } from '@/hooks/usePermissions'
 import { getApiUrl } from '@/lib/config'
 
 interface UseDashboardDataOptions {
@@ -27,6 +28,7 @@ interface UseDashboardDataReturn {
 export const useDashboardData = (options: UseDashboardDataOptions): UseDashboardDataReturn => {
   const { dataType, autoFetch = true, backgroundRevalidation = true, summary = false } = options
   const { user } = useAuth()
+  const { permissions, isLoading: permissionsLoading } = usePermissions()
   const {
     getData,
     setData,
@@ -48,10 +50,20 @@ export const useDashboardData = (options: UseDashboardDataOptions): UseDashboard
   const hasData = user?.email ? hasDataInState(user.email, dataType, user.city) : false
   const shouldRefresh = user?.email ? needsRefresh(user.email, dataType, user.city) : false
 
+  // Check if user has permissions - block API calls if no permissions
+  const hasAccess = permissions.length > 0 || user?.role === "general_manager"
+
   // Fetch data function
   const fetchData = useCallback(async (forceRefresh: boolean = false) => {
     if (!user?.email || !user?.city) {
       console.log('⏭️ Skipping fetch - no user data')
+      return
+    }
+
+    // Block API calls if user has no permissions
+    const userHasAccess = permissions.length > 0 || user.role === "general_manager"
+    if (!userHasAccess) {
+      console.log('🚫 Skipping fetch - no permissions assigned (Access Denied)')
       return
     }
 
@@ -122,7 +134,7 @@ export const useDashboardData = (options: UseDashboardDataOptions): UseDashboard
       setLoading(user.email, dataType, false, user.city)
       fetchInProgressRef.current.delete(fetchKey)
     }
-  }, [user?.email, user?.city, dataType, hasData, shouldRefresh, setData, setLoading, setError])
+  }, [user?.email, user?.city, user?.role, permissions.length, dataType, hasData, shouldRefresh, setData, setLoading, setError])
 
   // Refresh data (always force refresh)
   const refreshData = useCallback(async () => {
@@ -141,20 +153,20 @@ export const useDashboardData = (options: UseDashboardDataOptions): UseDashboard
     }
   }, [user?.email, user?.city, dataType, markForRefresh])
 
-  // Auto-fetch on mount or when dataType changes
+  // Auto-fetch on mount or when dataType changes (only if user has permissions)
   useEffect(() => {
-    if (autoFetch && user?.email && user?.city) {
+    if (autoFetch && user?.email && user?.city && hasAccess && !permissionsLoading) {
       fetchData()
     }
-  }, [autoFetch, user?.email, user?.city, dataType, fetchData])
+  }, [autoFetch, user?.email, user?.city, dataType, hasAccess, permissionsLoading, fetchData])
 
-  // Background revalidation for stale data
+  // Background revalidation for stale data (only if user has permissions)
   useEffect(() => {
-    if (backgroundRevalidation && hasData && shouldRefresh && !isLoading) {
+    if (backgroundRevalidation && hasData && shouldRefresh && !isLoading && hasAccess && !permissionsLoading) {
       console.log('🔄 Background revalidation for stale data:', dataType)
       fetchData() // This will fetch in background without showing loader
     }
-  }, [backgroundRevalidation, hasData, shouldRefresh, isLoading, dataType, fetchData])
+  }, [backgroundRevalidation, hasData, shouldRefresh, isLoading, hasAccess, permissionsLoading, dataType, fetchData])
 
   return {
     data,

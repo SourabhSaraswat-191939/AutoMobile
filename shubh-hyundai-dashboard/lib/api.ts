@@ -851,12 +851,14 @@ export interface UploadStats {
 
 export async function getUploadHistory(showroomId: string, fileType?: string): Promise<UploadHistory[]> {
   try {
-    const url = new URL(`http://localhost:5000/api/excel/history/${showroomId}`)
+    let url = getApiUrl(`/api/excel/history/${showroomId}`)
     if (fileType) {
-      url.searchParams.append('fileType', fileType)
+      const urlObj = new URL(url)
+      urlObj.searchParams.append('fileType', fileType)
+      url = urlObj.toString()
     }
     
-    const response = await fetch(url.toString())
+    const response = await fetch(url)
     const result = await response.json()
     
     if (result.success) {
@@ -873,12 +875,14 @@ export async function getUploadHistory(showroomId: string, fileType?: string): P
 
 export async function getUploadStats(showroomId: string, fileType?: string): Promise<UploadStats[]> {
   try {
-    const url = new URL(`http://localhost:5000/api/excel/stats/${showroomId}`)
+    let url = getApiUrl(`/api/excel/stats/${showroomId}`)
     if (fileType) {
-      url.searchParams.append('fileType', fileType)
+      const urlObj = new URL(url)
+      urlObj.searchParams.append('fileType', fileType)
+      url = urlObj.toString()
     }
     
-    const response = await fetch(url.toString())
+    const response = await fetch(url)
     const result = await response.json()
     
     if (result.success) {

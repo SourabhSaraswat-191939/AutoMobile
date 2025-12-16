@@ -32,7 +32,30 @@ if (!fs.existsSync(excelUploadsDir)) {
   console.log("📁 Created Excel uploads directory");
 }
 
-app.use(cors());
+// Configure CORS with explicit options
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, Postman, or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Allow all origins in development, or specific origins in production
+    if (process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    
+    // In production, you can whitelist specific origins if needed
+    // For now, allow all origins
+    callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range']
+}));
+
+// CORS middleware already handles preflight OPTIONS requests automatically
+// No need for explicit app.options() - the cors() middleware handles it
+
 app.use(express.json());
 
 // Register routes
@@ -76,7 +99,14 @@ mongoose.connect(process.env.MONGO_URI)
 
     // Start server only after DB connects (for local development)
     if (process.env.NODE_ENV !== 'production') {
-      app.listen(5000, () => console.log("🚀 Server running on port 5000"));
+      // Listen on all interfaces (0.0.0.0) to allow access from network IPs
+      app.listen(5000, '0.0.0.0', () => {
+        console.log("🚀 Server running on port 5000");
+        console.log("📡 Accessible at:");
+        console.log("   - http://localhost:5000");
+        console.log("   - http://127.0.0.1:5000");
+        console.log("   - http://[your-network-ip]:5000");
+      });
     }
   })
   .catch(err => {
