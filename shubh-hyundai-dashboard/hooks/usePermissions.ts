@@ -25,6 +25,11 @@ export function usePermissions() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') {
+      return
+    }
+
     if (user) {
       // ✅ IMMEDIATE ACCESS: Set role-based permissions synchronously first for GMs / role-based flows
       const rolePermissions = getWorkingRoleBasedPermissions(user.role)
@@ -89,10 +94,23 @@ export function usePermissions() {
 
       // Try to enhance with database permissions (primary path)
       try {
+        // Ensure we're on client side before making fetch
+        if (typeof window === 'undefined') {
+          console.log("⏭️ Skipping fetch - server-side rendering")
+          return permissions
+        }
+
         const directApiUrl = getApiUrl(`/api/rbac/users/email/${encodeURIComponent(user.email)}/permissions`)
         console.log("🔍 Fetching permissions for:", user.email, "Role:", user.role)
         console.log("🌐 API URL:", directApiUrl)
-        const directResponse = await fetch(directApiUrl, { cache: 'no-cache' })
+        
+        const directResponse = await fetch(directApiUrl, { 
+          cache: 'no-cache',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        })
         console.log("📡 API Response Status:", directResponse.status)
         
         if (directResponse.ok) {
@@ -143,14 +161,39 @@ export function usePermissions() {
             return currentRolePermissions
           }
         }
-      } catch (directErr) {
+      } catch (directErr: any) {
         console.error("❌ Direct API error:", directErr)
-        // Try fallback
+        // Check if it's a network error (CORS, connection refused, etc.)
+        if (directErr instanceof TypeError && directErr.message.includes('fetch')) {
+          console.error("🌐 Network error - API may be unreachable or CORS issue")
+          setError(`Network error: Unable to reach API. Please check your connection and that the backend is running.`)
+          // Fall back to role-based permissions for now
+          const fallbackPerms = getWorkingRoleBasedPermissions(user.role)
+          if (fallbackPerms.length > 0) {
+            console.log("✅ Using role-based permissions as fallback")
+            setPermissions(fallbackPerms)
+            return fallbackPerms
+          }
+        }
+        // Try fallback API
       }
       
       // FALLBACK: Try summary API
       try {
-        const summaryResponse = await fetch(getApiUrl("/api/rbac/user-roles-summary"))
+        // Ensure we're on client side before making fetch
+        if (typeof window === 'undefined') {
+          console.log("⏭️ Skipping fallback fetch - server-side rendering")
+          const fallbackPerms = getWorkingRoleBasedPermissions(user.role)
+          return fallbackPerms
+        }
+
+        const summaryResponse = await fetch(getApiUrl("/api/rbac/user-roles-summary"), {
+          cache: 'no-cache',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        })
         
         if (summaryResponse.ok) {
           const summaryData = await summaryResponse.json()
@@ -248,14 +291,34 @@ export function usePermissions() {
         } else {
           console.log("⚠️ Summary API failed, keeping role-based permissions")
           const currentRolePermissions = getWorkingRoleBasedPermissions(user.role)
+          setPermissions(currentRolePermissions)
         }
-      } catch (summaryErr) {
-        console.log("⚠️ Summary API error, keeping role-based permissions:", summaryErr)
+      } catch (summaryErr: any) {
+        console.error("❌ Summary API error:", summaryErr)
+        // Check if it's a network error
+        if (summaryErr instanceof TypeError && summaryErr.message.includes('fetch')) {
+          console.error("🌐 Network error - Fallback API also unreachable")
+          setError(`Network error: Unable to reach API. Please check your connection and that the backend is running.`)
+        }
+        // Fall back to role-based permissions
         const currentRolePermissions = getWorkingRoleBasedPermissions(user.role)
+        if (currentRolePermissions.length > 0) {
+          console.log("✅ Using role-based permissions as fallback")
+          setPermissions(currentRolePermissions)
+          return currentRolePermissions
+        }
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("❌ Error in permission fetching:", err)
+      setError(err?.message || "Failed to fetch permissions")
+      
+      // Check if it's a network error
+      if (err instanceof TypeError && err.message.includes('fetch')) {
+        console.error("🌐 Network/CORS error detected")
+        setError("Network error: Unable to reach API. Please check your connection and that the backend is running.")
+      }
+      
       // ✅ UPDATED: Only fallback to role permissions for general managers
       // Service managers and others need database permissions
       if (user.role === "general_manager") {
@@ -265,7 +328,9 @@ export function usePermissions() {
         setPermissions(finalFallback)
       } else {
         console.log("🚫 Error occurred - only GMs get fallback permissions, setting empty permissions")
-        setPermissions([])
+        // Still set role-based permissions as a last resort for other roles
+        const rolePerms = getWorkingRoleBasedPermissions(user.role)
+        setPermissions(rolePerms.length > 0 ? rolePerms : [])
       }
     } finally {
       setIsLoading(false)
