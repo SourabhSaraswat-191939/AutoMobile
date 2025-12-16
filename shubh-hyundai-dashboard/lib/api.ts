@@ -281,6 +281,8 @@ export async function getCityStats(): Promise<CityStats[]> {
   })
 }
 
+import { getApiUrl } from "@/lib/config"
+
 export async function uploadServiceData(
   file: File,
   city: string,
@@ -297,7 +299,7 @@ export async function uploadServiceData(
     formData.append('org_id', orgId)
     formData.append('showroom_id', showroomId)
 
-    const response = await fetch('http://localhost:5000/api/excel/upload', {
+    const response = await fetch(getApiUrl("/api/excel/upload"), {
       method: 'POST',
       body: formData,
     })
