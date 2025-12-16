@@ -28,8 +28,8 @@ export default function ROBillingPage() {
   // Sync local table state with cached dashboard data
   useEffect(() => {
     const dataArray = Array.isArray(dashboardData?.data) ? dashboardData.data : []
-    setData(dataArray)
-    setFilteredData(dataArray)
+        setData(dataArray)
+        setFilteredData(dataArray)
   }, [dashboardData])
 
   // Search filter effect
@@ -120,7 +120,7 @@ export default function ROBillingPage() {
             <div className="text-center py-8 text-muted-foreground">Loading...</div>
           )}
           {!isLoading && error && (
-          <div className="text-center py-8 text-red-600">{error}</div>
+            <div className="text-center py-8 text-red-600">{error}</div>
           )}
           {!isLoading && !error && data.length === 0 && (
             <div className="text-center py-8">

@@ -5,6 +5,13 @@ import { useAuth } from "@/lib/auth-context"
 import { getApiUrl } from "@/lib/config"
 import { useUserApiData } from "@/hooks/useGlobalApiData"
 
+// Shared across all hook instances to avoid duplicate network calls
+const permissionCache = new Map<string, { timestamp: number; perms: string[] }>()
+const inFlight = new Map<string, Promise<string[]>>()
+const lastFetchTs = new Map<string, number>()
+const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+const FETCH_COOLDOWN_MS = 5_000 // 5 seconds
+
 interface Permission {
   id: string
   permission_key: string
@@ -37,7 +44,42 @@ export function usePermissions() {
   const fetchUserPermissions = useCallback(async () => {
     if (!user) return
 
-    try {
+    const fetchKey = `${user.email}`
+    const now = Date.now()
+
+    // Serve from cache if still fresh
+    const cached = permissionCache.get(fetchKey)
+    if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+      console.log("📦 Using cached permissions", fetchKey)
+      setPermissions(cached.perms)
+      setIsLoading(false)
+      return
+    }
+
+    // Cooldown: avoid spamming the same permission endpoint within a short window
+    const lastTs = lastFetchTs.get(fetchKey) || 0
+    if (now - lastTs < FETCH_COOLDOWN_MS && permissions.length > 0) {
+      console.log("⏭️ Skipping permission fetch (cooldown active)", fetchKey)
+      return
+    }
+
+    // Prevent parallel fetches
+    const inProgress = inFlight.get(fetchKey)
+    if (inProgress) {
+      console.log("⏭️ Joining in-flight permission fetch", fetchKey)
+      try {
+        const perms = await inProgress
+        setPermissions(perms)
+      } finally {
+        setIsLoading(false)
+      }
+      return
+    }
+
+    lastFetchTs.set(fetchKey, now)
+
+    const promise = (async () => {
+      try {
       // Always show a quick loading state when re-fetching from backend
       setIsLoading(true)
       setError(null)
@@ -83,10 +125,9 @@ export function usePermissions() {
             if (directPermissionKeys.length > 0) {
               console.log("✅ Setting", directPermissionKeys.length, "permissions from database:", directPermissionKeys)
               setPermissions(directPermissionKeys)
+              permissionCache.set(fetchKey, { timestamp: Date.now(), perms: directPermissionKeys })
               setIsLoading(false)
-              return
-            } else {
-              console.log("⚠️ Permission keys are empty after extraction")
+              return directPermissionKeys
             }
           } else {
             console.log("⚠️ Database returned 0 permissions for user:", user.email)
@@ -95,10 +136,11 @@ export function usePermissions() {
             if (currentRolePermissions.length === 0) {
               console.log("🚫 Setting empty permissions - custom role with no database permissions")
               setPermissions([])
+              permissionCache.set(fetchKey, { timestamp: Date.now(), perms: [] })
             } else {
               console.log("✅ Keeping role-based permissions:", currentRolePermissions)
             }
-            return
+            return currentRolePermissions
           }
         }
       } catch (directErr) {
@@ -177,12 +219,10 @@ export function usePermissions() {
               if (allPermissions.length >= currentRolePermissions.length) {
                 console.log("✅ Using enhanced database permissions")
                 setPermissions(allPermissions)
+                permissionCache.set(fetchKey, { timestamp: Date.now(), perms: allPermissions })
               } else {
                 console.log("📊 Role-based permissions are better, keeping them")
               }
-            } else {
-              console.log("⚠️ No permissions found in database roles")
-              const currentRolePermissions = getWorkingRoleBasedPermissions(user.role)
             }
           } else {
             console.log("⚠️ User has no roles assigned in database")
@@ -198,9 +238,11 @@ export function usePermissions() {
           if (user.role === "general_manager") {
             console.log("✅ User is GM but not in database, giving role-based permissions")
             const currentRolePermissions = getWorkingRoleBasedPermissions(user.role)
+            permissionCache.set(fetchKey, { timestamp: Date.now(), perms: currentRolePermissions })
           } else {
             console.log("🚫 User not in database and not GM - setting empty permissions")
             setPermissions([])
+            permissionCache.set(fetchKey, { timestamp: Date.now(), perms: [] })
           }
         }
         } else {
@@ -227,6 +269,14 @@ export function usePermissions() {
       }
     } finally {
       setIsLoading(false)
+    }
+    })()
+
+    inFlight.set(fetchKey, promise)
+    try {
+      await promise
+    } finally {
+      inFlight.delete(fetchKey)
     }
   }, [user])
 
@@ -294,6 +344,10 @@ export function usePermissions() {
   }
 
   const hasPermission = useCallback((permissionKey: string): boolean => {
+    // Extra safety: handle any unexpected non-array state
+    if (!Array.isArray(permissions)) {
+      return false
+    }
     return permissions.includes(permissionKey)
   }, [permissions])
 

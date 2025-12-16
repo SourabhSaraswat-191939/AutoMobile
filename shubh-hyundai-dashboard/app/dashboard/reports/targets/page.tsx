@@ -457,23 +457,23 @@ export default function AdvisorTargetsReportPage() {
 
   // Load RO rows and advisors from cached dashboard data + localStorage targets
   useEffect(() => {
-    if (!user?.city) return
+      if (!user?.city) return
 
     const roData = Array.isArray(dashboardData?.data) ? dashboardData.data : []
-    setRoRows(roData)
-
-    const uniqueAdvisorNames = Array.from(
-      new Set(roData.map((r: any) => r.serviceAdvisor).filter(Boolean))
-    )
-    const advisorList = uniqueAdvisorNames.map((name: any) => ({ name }))
-    setAdvisors(advisorList)
-
-    const rawTarget = localStorage.getItem(GM_TARGETS_KEY)
-    const targets = rawTarget ? JSON.parse(rawTarget) : []
-    setCityTarget(targets.find((t: any) => t.city === user.city) || null)
-
-    const rawAssign = localStorage.getItem(ADVISOR_ASSIGNMENTS_KEY)
-    setAssignments(rawAssign ? JSON.parse(rawAssign) : [])
+        setRoRows(roData)
+        
+        const uniqueAdvisorNames = Array.from(
+          new Set(roData.map((r: any) => r.serviceAdvisor).filter(Boolean))
+        )
+        const advisorList = uniqueAdvisorNames.map((name: any) => ({ name }))
+        setAdvisors(advisorList)
+        
+        const rawTarget = localStorage.getItem(GM_TARGETS_KEY)
+        const targets = rawTarget ? JSON.parse(rawTarget) : []
+        setCityTarget(targets.find((t: any) => t.city === user.city) || null)
+        
+        const rawAssign = localStorage.getItem(ADVISOR_ASSIGNMENTS_KEY)
+        setAssignments(rawAssign ? JSON.parse(rawAssign) : [])
   }, [user?.city, dashboardData])
 
   const handleDistributeClick = () => {

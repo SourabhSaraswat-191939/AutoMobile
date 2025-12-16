@@ -33,18 +33,23 @@ export const getUserPermissions = async (userId) => {
 
     rolePermissions.forEach((rp) => {
       const permissionKey = rp.permission_id.permission_key;
+      const metaValue = rp.meta;
+      const metaArr = metaValue ? [metaValue] : [];
       
       if (!permissionsMap.has(permissionKey)) {
         permissionsMap.set(permissionKey, {
           id: rp.permission_id._id,
           permission_key: rp.permission_id.permission_key,
           name: rp.permission_id.name,
-          meta: [rp.meta]
+          ...(metaArr.length > 0 ? { meta: metaArr } : {})
         });
       } else {
-        // If permission exists from another role, merge meta
+        // If permission exists from another role, merge meta (skip null/undefined)
         const existing = permissionsMap.get(permissionKey);
-        existing.meta.push(rp.meta);
+        if (metaValue) {
+          if (!existing.meta) existing.meta = [];
+          existing.meta.push(metaValue);
+        }
       }
     });
 

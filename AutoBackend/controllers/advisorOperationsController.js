@@ -207,6 +207,56 @@ export const uploadAdvisorOperationsWithCases = async (req, res) => {
   }
 };
 
+// Lightweight advisor operations summary
+// Returns per-advisor aggregates without row-level data
+export const getAdvisorOperationsSummary = async (req, res) => {
+  try {
+    const { uploadedBy, city, viewMode = "cumulative" } = req.query;
+
+    if (!uploadedBy) {
+      return res.status(400).json({ message: "Missing required parameter: uploadedBy" });
+    }
+
+    const match = { uploaded_by: uploadedBy };
+    if (city) match.city = city;
+
+    // Optional date filter for "specific" mode
+    if (viewMode === "specific" && req.query.dataDate) {
+      const dataDate = new Date(req.query.dataDate);
+      const start = new Date(dataDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(dataDate);
+      end.setHours(23, 59, 59, 999);
+      match.data_date = { $gte: start, $lte: end };
+    }
+
+    const summary = await AdvisorOperations.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: "$advisor_name",
+          totalAmount: { $sum: "$operation_amount" },
+          operations: { $sum: 1 },
+          lastDate: { $max: "$data_date" },
+        },
+      },
+      { $sort: { totalAmount: -1 } },
+    ]);
+
+    const result = summary.map((s) => ({
+      advisorName: s._id,
+      totalAmount: s.totalAmount || 0,
+      operations: s.operations || 0,
+      lastDate: s.lastDate,
+    }));
+
+    return res.json({ success: true, data: result, count: result.length });
+  } catch (error) {
+    console.error("Error fetching advisor operations summary:", error);
+    return res.status(500).json({ message: "Failed to fetch advisor operations summary" });
+  }
+};
+
 // Upload advisor operation Excel file (Original method - kept for backward compatibility)
 export const uploadAdvisorOperations = async (req, res) => {
   try {

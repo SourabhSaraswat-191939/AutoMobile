@@ -15,6 +15,7 @@ import mongoose from 'mongoose';
 export const getNewDashboardData = async (req, res) => {
   try {
     const { uploadedBy, city, dataType } = req.query;
+    const summaryOnly = req.query.summary === 'true';
 
     console.log(`🔍 Dashboard API called with params:`, req.query);
 
@@ -56,6 +57,18 @@ export const getNewDashboardData = async (req, res) => {
       .limit(10);
     console.log(`📊 Found ${uploads.length} uploads for exact email match`);
 
+    // If no uploads, return empty success to avoid downstream errors
+    if (uploads.length === 0) {
+      return res.json({
+        success: true,
+        dataType: dataType || 'all',
+        count: 0,
+        data: [],
+        summary: {},
+        uploads: [],
+      });
+    }
+
     // ✅ STRICT DATA ISOLATION: Only show data uploaded by the exact user
     // No fallback to other users' data to prevent data leakage between service managers
     if (uploads.length === 0) {
@@ -69,31 +82,34 @@ export const getNewDashboardData = async (req, res) => {
         const roBillingFiles = uploads.filter(f => f.file_type === 'ro_billing');
         if (roBillingFiles.length > 0) {
           const fileIds = roBillingFiles.map(f => f._id);
-          const rawData = await ROBillingData.find({ uploaded_file_id: { $in: fileIds } })
-            .sort({ created_at: -1 });
-          
-          // Convert snake_case to camelCase for frontend compatibility
-          data = rawData.map(record => ({
-            ...record.toObject(),
-            // Map database fields to frontend expected fields
-            workType: record.work_type,
-            serviceAdvisor: record.service_advisor,
-            labourAmt: record.labour_amt,
-            partAmt: record.part_amt,
-            totalAmount: record.total_amount,
-            vehicleNumber: record.vehicle_number,
-            customerName: record.customer_name,
-            billDate: record.bill_date,
-            technicianName: record.technician_name,
-            discountAmount: record.discount_amount,
-            taxAmount: record.tax_amount,
-            roundOffAmount: record.round_off_amount,
-            serviceTax: record.service_tax,
-            vatAmount: record.vat_amount,
-            labourTax: record.labour_tax,
-            partTax: record.part_tax,
-            otherAmount: record.other_amount
-          }));
+
+          if (!summaryOnly) {
+            const rawData = await ROBillingData.find({ uploaded_file_id: { $in: fileIds } })
+              .sort({ created_at: -1 });
+            
+            // Convert snake_case to camelCase for frontend compatibility
+            data = rawData.map(record => ({
+              ...record.toObject(),
+              // Map database fields to frontend expected fields
+              workType: record.work_type,
+              serviceAdvisor: record.service_advisor,
+              labourAmt: record.labour_amt,
+              partAmt: record.part_amt,
+              totalAmount: record.total_amount,
+              vehicleNumber: record.vehicle_number,
+              customerName: record.customer_name,
+              billDate: record.bill_date,
+              technicianName: record.technician_name,
+              discountAmount: record.discount_amount,
+              taxAmount: record.tax_amount,
+              roundOffAmount: record.round_off_amount,
+              serviceTax: record.service_tax,
+              vatAmount: record.vat_amount,
+              labourTax: record.labour_tax,
+              partTax: record.part_tax,
+              otherAmount: record.other_amount
+            }));
+          }
           
           count = await ROBillingData.countDocuments({ uploaded_file_id: { $in: fileIds } });
           
@@ -121,8 +137,10 @@ export const getNewDashboardData = async (req, res) => {
         const warrantyFiles = uploads.filter(f => f.file_type === 'warranty');
         if (warrantyFiles.length > 0) {
           const fileIds = warrantyFiles.map(f => f._id);
-          data = await WarrantyData.find({ uploaded_file_id: { $in: fileIds } })
-            .sort({ created_at: -1 });
+          if (!summaryOnly) {
+            data = await WarrantyData.find({ uploaded_file_id: { $in: fileIds } })
+              .sort({ created_at: -1 });
+          }
           count = await WarrantyData.countDocuments({ uploaded_file_id: { $in: fileIds } });
           
           // Calculate warranty financial summary
@@ -216,8 +234,10 @@ export const getNewDashboardData = async (req, res) => {
         const bookingFiles = uploads.filter(f => f.file_type === 'booking_list');
         if (bookingFiles.length > 0) {
           const fileIds = bookingFiles.map(f => f._id);
-          data = await BookingListData.find({ uploaded_file_id: { $in: fileIds } })
-            .sort({ created_at: -1 });
+          if (!summaryOnly) {
+            data = await BookingListData.find({ uploaded_file_id: { $in: fileIds } })
+              .sort({ created_at: -1 });
+          }
           count = await BookingListData.countDocuments({ uploaded_file_id: { $in: fileIds } });
           
           // Get Service Advisor breakdown
@@ -288,8 +308,10 @@ export const getNewDashboardData = async (req, res) => {
         const repairOrderFiles = uploads.filter(f => f.file_type === 'repair_order_list');
         if (repairOrderFiles.length > 0) {
           const fileIds = repairOrderFiles.map(f => f._id);
-          data = await RepairOrderListData.find({ uploaded_file_id: { $in: fileIds } })
-            .sort({ created_at: -1 });
+          if (!summaryOnly) {
+            data = await RepairOrderListData.find({ uploaded_file_id: { $in: fileIds } })
+              .sort({ created_at: -1 });
+          }
           count = await RepairOrderListData.countDocuments({ uploaded_file_id: { $in: fileIds } });
           
           // Calculate summary for Repair Order List
@@ -343,10 +365,15 @@ export const getNewDashboardData = async (req, res) => {
         const allFiles = uploads;
         const fileIds = allFiles.map(f => f._id);
         
-        // Get actual data and counts with warranty calculations
-        const [roData, warrantyData, roCount, warrantyCount, bookingCount, operationsCount, warrantyTotals] = await Promise.all([
-          ROBillingData.find({ uploaded_file_id: { $in: fileIds } }).sort({ created_at: -1 }).limit(50),
-          WarrantyData.find({ uploaded_file_id: { $in: fileIds } }).sort({ created_at: -1 }).limit(50),
+        // Get counts and aggregates; only fetch sample data when not summary
+        const [
+          roCount,
+          warrantyCount,
+          bookingCount,
+          operationsCount,
+          warrantyTotals,
+          totalAmountAgg
+        ] = await Promise.all([
           ROBillingData.countDocuments({ uploaded_file_id: { $in: fileIds } }),
           WarrantyData.countDocuments({ uploaded_file_id: { $in: fileIds } }),
           BookingListData.countDocuments({ uploaded_file_id: { $in: fileIds } }),
@@ -360,37 +387,44 @@ export const getNewDashboardData = async (req, res) => {
               totalPartAmount: { $sum: '$part_amount' },
               totalApprovedAmount: { $sum: '$approved_amount' }
             }}
+          ]),
+          ROBillingData.aggregate([
+            { $match: { uploaded_file_id: { $in: fileIds } } },
+            { $group: { 
+              _id: null, 
+              total: { $sum: '$total_amount' },
+              labour: { $sum: '$labour_amt' },
+              parts: { $sum: '$part_amt' }
+            }}
           ])
         ]);
 
-        // Convert RO Billing data to camelCase for frontend
-        const convertedRoData = roData.map(record => ({
-          ...record.toObject(),
-          workType: record.work_type,
-          serviceAdvisor: record.service_advisor,
-          labourAmt: record.labour_amt,
-          partAmt: record.part_amt,
-          totalAmount: record.total_amount,
-          vehicleNumber: record.vehicle_number,
-          customerName: record.customer_name,
-          billDate: record.bill_date,
-          technicianName: record.technician_name
-        }));
+        if (!summaryOnly) {
+          const [roData, warrantyData] = await Promise.all([
+            ROBillingData.find({ uploaded_file_id: { $in: fileIds } }).sort({ created_at: -1 }).limit(50),
+            WarrantyData.find({ uploaded_file_id: { $in: fileIds } }).sort({ created_at: -1 }).limit(50)
+          ]);
 
-        // Combine data for average view
-        data = [...convertedRoData, ...warrantyData];
+          // Convert RO Billing data to camelCase for frontend
+          const convertedRoData = roData.map(record => ({
+            ...record.toObject(),
+            workType: record.work_type,
+            serviceAdvisor: record.service_advisor,
+            labourAmt: record.labour_amt,
+            partAmt: record.part_amt,
+            totalAmount: record.total_amount,
+            vehicleNumber: record.vehicle_number,
+            customerName: record.customer_name,
+            billDate: record.bill_date,
+            technicianName: record.technician_name
+          }));
+
+          // Combine data for average view (limited sample)
+          data = [...convertedRoData, ...warrantyData];
+        }
+
+        const totalAmount = totalAmountAgg || [];
         count = roCount + warrantyCount + bookingCount + operationsCount;
-        
-        // Calculate financial summary from RO Billing data
-        const totalAmount = await ROBillingData.aggregate([
-          { $match: { uploaded_file_id: { $in: fileIds } } },
-          { $group: { 
-            _id: null, 
-            total: { $sum: '$total_amount' },
-            labour: { $sum: '$labour_amt' },
-            parts: { $sum: '$part_amt' }
-          }}
-        ]);
 
         summary = {
           totalRecords: count,

@@ -9,6 +9,7 @@ interface UseDashboardDataOptions {
   dataType: DataType
   autoFetch?: boolean // Whether to auto-fetch on mount
   backgroundRevalidation?: boolean // Whether to revalidate in background
+  summary?: boolean // If true, hit lightweight summary endpoint
 }
 
 interface UseDashboardDataReturn {
@@ -24,7 +25,7 @@ interface UseDashboardDataReturn {
 }
 
 export const useDashboardData = (options: UseDashboardDataOptions): UseDashboardDataReturn => {
-  const { dataType, autoFetch = true, backgroundRevalidation = true } = options
+  const { dataType, autoFetch = true, backgroundRevalidation = true, summary = false } = options
   const { user } = useAuth()
   const {
     getData,
@@ -88,8 +89,9 @@ export const useDashboardData = (options: UseDashboardDataOptions): UseDashboard
         apiUrl = getApiUrl(`/api/booking-list/dashboard?uploadedBy=${user.email}&city=${user.city}&showroom_id=${userShowroomId}`)
         console.log('🔗 Fetching BookingList with VIN matching:', dataType)
       } else {
-        apiUrl = getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=${dataType}`)
-        console.log('🔗 Fetching:', dataType)
+        const summaryFlag = summary ? '&summary=true' : ''
+        apiUrl = getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=${dataType}${summaryFlag}`)
+        console.log('🔗 Fetching:', dataType, summary ? '(summary)' : '')
       }
       
       const response = await fetch(apiUrl)

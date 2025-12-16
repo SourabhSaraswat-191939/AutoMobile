@@ -1,40 +1,81 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/lib/auth-context';
-import { getApiUrl } from '@/lib/config';
-import { 
-  Car, TrendingUp, TrendingDown, Users, DollarSign, Package, 
-  Wrench, Calendar, MapPin, Phone, Mail, Building, Clock, 
-  CheckCircle, XCircle, AlertCircle, ArrowRight, Filter,
-  ChevronLeft, ChevronRight, BarChart3, PieChart, Activity,
-  Target, Award, Zap, ShoppingCart, FileText, Star,
-  BarChart2, TrendingUpIcon, Shield, Heart, IndianRupee,
-  Bell, Search, User, Settings, LogOut, Settings as ToolIcon, ClipboardCheck,
-  CalendarDays, UserCheck, MoreVertical
-} from 'lucide-react';
+import React, { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth-context";
+import { getApiUrl } from "@/lib/config";
+import { useDashboardData } from "@/hooks/useDashboardData";
+import {
+  Car,
+  TrendingUp,
+  TrendingDown,
+  Users,
+  DollarSign,
+  Package,
+  Wrench,
+  Calendar,
+  MapPin,
+  Phone,
+  Mail,
+  Building,
+  Clock,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  ArrowRight,
+  Filter,
+  ChevronLeft,
+  ChevronRight,
+  BarChart3,
+  PieChart,
+  Activity,
+  Target,
+  Award,
+  Zap,
+  ShoppingCart,
+  FileText,
+  Star,
+  BarChart2,
+  TrendingUpIcon,
+  Shield,
+  Heart,
+  IndianRupee,
+  Bell,
+  Search,
+  User,
+  Settings,
+  LogOut,
+  Settings as ToolIcon,
+  ClipboardCheck,
+  CalendarDays,
+  UserCheck,
+  MoreVertical,
+} from "lucide-react";
 
 const GMDashboard = () => {
   const router = useRouter();
   const { user } = useAuth();
-  const [selectedPeriod, setSelectedPeriod] = useState('monthly');
+  const [selectedPeriod, setSelectedPeriod] = useState("monthly");
   const [currentSlide, setCurrentSlide] = useState(0);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
-  const [selectedBranch, setSelectedBranch] = useState('all');
-  const [selectedDepartment, setSelectedDepartment] = useState('all');
+  const [selectedBranch, setSelectedBranch] = useState("all");
+  const [selectedDepartment, setSelectedDepartment] = useState("all");
   const [isHovering, setIsHovering] = useState(false);
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [operationsData, setOperationsData] = useState<any[]>([]);
   const [warrantyData, setWarrantyData] = useState<any[]>([]);
   const [roBillingData, setRoBillingData] = useState<any[]>([]);
   const [serviceBookingData, setServiceBookingData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+
+  // Single-flight guard for advisor-operations API
+  const opsFetchInFlight = useRef<boolean>(false);
+  const opsLastFetch = useRef<number>(0);
+  const OPS_COOLDOWN_MS = 5_000;
 
   // Check user role
-  const isGM = user?.role === 'general_manager';
-  const isSM = user?.role === 'service_manager';
+  const isGM = user?.role === "general_manager";
+  const isSM = user?.role === "service_manager";
 
   // For SM users, set selectedBranch to their city
   useEffect(() => {
@@ -43,71 +84,87 @@ const GMDashboard = () => {
     }
   }, [isSM, user?.city]);
 
-  // Fetch real data from backend
+  // ✅ Use shared dashboard cache for all "dashboard-data" endpoints
+  const {
+    data: averageDashboard,
+    isLoading: avgLoading,
+  } = useDashboardData({ dataType: "average", summary: true });
+  const {
+    data: roDashboard,
+    isLoading: roLoading,
+  } = useDashboardData({ dataType: "ro_billing", summary: true });
+  const {
+    data: warrantyDashboard,
+    isLoading: warrantyLoading,
+  } = useDashboardData({ dataType: "warranty", summary: true });
+  const {
+    data: bookingDashboard,
+    isLoading: bookingLoading,
+  } = useDashboardData({ dataType: "service_booking", summary: true });
+
+  // Derive local state from cached dashboard data
   useEffect(() => {
-    const fetchDashboardData = async () => {
+    if (averageDashboard) {
+      setDashboardData(averageDashboard);
+      console.log("Overview Dashboard Data:", averageDashboard);
+    }
+  }, [averageDashboard]);
+
+  useEffect(() => {
+    const roData = Array.isArray(roDashboard?.data) ? roDashboard.data : [];
+    setRoBillingData(roData);
+  }, [roDashboard]);
+
+  useEffect(() => {
+    const wData = Array.isArray(warrantyDashboard?.data)
+      ? warrantyDashboard.data
+      : [];
+    setWarrantyData(wData);
+  }, [warrantyDashboard]);
+
+  useEffect(() => {
+    const sbData = Array.isArray(bookingDashboard?.data)
+      ? bookingDashboard.data
+      : [];
+    setServiceBookingData(sbData);
+  }, [bookingDashboard]);
+
+  // Fetch operations data from advisor-operations API (uploaded files) with single-flight guard
+  useEffect(() => {
+    const fetchOperations = async () => {
       if (!user?.email || !user?.city) return;
 
-      setIsLoading(true);
+      const now = Date.now();
+      if (opsFetchInFlight.current || (now - opsLastFetch.current < OPS_COOLDOWN_MS && operationsData.length > 0)) {
+        console.log("⏭️ Skipping advisor-operations fetch (cooldown / in-flight)");
+        return;
+      }
+
+      opsFetchInFlight.current = true;
+      opsLastFetch.current = now;
+
       try {
-        const response = await fetch(
-          getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=average`)
-        );
-
-        if (response.ok) {
-          const data = await response.json();
-          setDashboardData(data);
-          console.log('Overview Dashboard Data:', data);
-        }
-
-        // Fetch operations data from advisor-operations API (uploaded files)
         const opsResponse = await fetch(
-          getApiUrl(`/api/service-manager/advisor-operations?uploadedBy=${user.email}&city=${user.city}&viewMode=cumulative`)
+          getApiUrl(
+            `/api/service-manager/advisor-operations?uploadedBy=${user.email}&city=${user.city}&viewMode=cumulative`
+          )
         );
 
         if (opsResponse.ok) {
           const opsData = await opsResponse.json();
           setOperationsData(Array.isArray(opsData.data) ? opsData.data : []);
         }
-
-        // Fetch RO Billing data for accurate labour calculation
-        const roBillingResponse = await fetch(
-          getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=ro_billing`)
-        );
-
-        if (roBillingResponse.ok) {
-          const roBillingDataRes = await roBillingResponse.json();
-          setRoBillingData(Array.isArray(roBillingDataRes.data) ? roBillingDataRes.data : []);
-        }
-
-        // Fetch warranty data for free service labour calculation
-        const warrantyResponse = await fetch(
-          getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=warranty`)
-        );
-
-        if (warrantyResponse.ok) {
-          const warrantyDataRes = await warrantyResponse.json();
-          setWarrantyData(Array.isArray(warrantyDataRes.data) ? warrantyDataRes.data : []);
-        }
-
-        // Fetch service booking data for booking status breakdown
-        const serviceBookingResponse = await fetch(
-          getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=service_booking`)
-        );
-
-        if (serviceBookingResponse.ok) {
-          const serviceBookingDataRes = await serviceBookingResponse.json();
-          setServiceBookingData(Array.isArray(serviceBookingDataRes.data) ? serviceBookingDataRes.data : []);
-        }
       } catch (error) {
-        console.error('Error fetching dashboard data:', error);
+        console.error("Error fetching advisor-operations data:", error);
       } finally {
-        setIsLoading(false);
+        opsFetchInFlight.current = false;
       }
     };
 
-    fetchDashboardData();
-  }, [user?.email, user?.city]);
+    fetchOperations();
+  }, [user?.email, user?.city, operationsData.length]);
+
+  const isLoading = avgLoading || roLoading || warrantyLoading || bookingLoading;
 
   // Dealership/Branch Information - Use real branch data
   const dealershipInfo = {

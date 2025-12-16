@@ -15,6 +15,7 @@ import {
   getAdvisorOperations,
   getAdvisorOperationDetails,
   deleteAdvisorOperations,
+  getAdvisorOperationsSummary,
 } from "../controllers/advisorOperationsController.js";
 import {
   uploadExcel,
@@ -69,6 +70,7 @@ router.delete("/reset-database", ensureDataOwnership, resetDatabase);
 router.post("/advisor-operations/upload", upload.single("file"), validateServiceManager, uploadAdvisorOperations);
 router.post("/advisor-operations/upload-with-cases", upload.single("file"), validateServiceManager, uploadAdvisorOperationsWithCases);
 router.get("/advisor-operations", ensureDataOwnership, getNewAdvisorOperations);
+router.get("/advisor-operations/summary", ensureDataOwnership, getAdvisorOperationsSummary);
 router.get("/advisor-operations/details", ensureDataOwnership, getAdvisorOperationDetails);
 router.delete("/advisor-operations", ensureDataOwnership, deleteAdvisorOperations);
 

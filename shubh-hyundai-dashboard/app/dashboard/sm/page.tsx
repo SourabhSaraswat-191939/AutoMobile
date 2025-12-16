@@ -585,18 +585,39 @@ const AdvisorOperationsSection = ({ user }: { user: any }) => {
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0])
   const [viewMode, setViewMode] = useState<'cumulative' | 'specific'>('cumulative')
   const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({})
+  const operationsFetchInFlight = useRef<Set<string>>(new Set())
+  const operationsLastFetch = useRef<Record<string, number>>({})
+  const roFetchInFlight = useRef<Set<string>>(new Set())
+  const roLastFetch = useRef<Record<string, number>>({})
+  const OPERATIONS_COOLDOWN_MS = 5_000
+  const RO_COOLDOWN_MS = 5_000
 
-  // Fetch unique advisors from RO Billing
+  // Fetch unique advisors from RO Billing (summary)
   useEffect(() => {
     const loadAdvisors = async () => {
       if (!user?.email || !user?.city) return
+
+      const roKey = `${user.email}-${user.city}-ro`
+      const now = Date.now()
+      const lastTs = roLastFetch.current[roKey] || 0
+      if (now - lastTs < RO_COOLDOWN_MS && roData.length > 0) {
+        console.log("⏭️ Skipping RO fetch (cooldown)", roKey)
+        return
+      }
+      if (roFetchInFlight.current.has(roKey)) {
+        console.log("⏭️ Skipping RO fetch (in flight)", roKey)
+        return
+      }
+
+      roFetchInFlight.current.add(roKey)
+      roLastFetch.current[roKey] = now
 
       setIsLoading(true)
       setError(null)
 
       try {
         const response = await fetch(
-          getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=ro_billing`)
+          getApiUrl(`/api/service-manager/dashboard-data?uploadedBy=${user.email}&city=${user.city}&dataType=ro_billing&summary=true`)
         )
 
         if (!response.ok) {
@@ -604,18 +625,22 @@ const AdvisorOperationsSection = ({ user }: { user: any }) => {
         }
 
         const result = await response.json()
-        const roBillingData = Array.isArray(result.data) ? result.data : []
-        setRoData(roBillingData)
+        const roSummary = result?.summary || {}
+        const advisorBreakdown = roSummary.advisorBreakdown || []
 
-        const uniqueAdvisorNames = Array.from(
-          new Set(roBillingData.map((r: any) => r.serviceAdvisor).filter(Boolean))
-        ) as string[]
+        // Minimal advisor list using summary if available, else fallback to data rows (empty in summary)
+        const uniqueAdvisorNames = advisorBreakdown.length
+          ? advisorBreakdown.map((a: any) => a.advisor).filter(Boolean)
+          : []
 
-        setAdvisors(uniqueAdvisorNames.sort())
+        setRoData([]) // not needed for summary path
+
+        setAdvisors(Array.from(new Set(uniqueAdvisorNames)).sort())
       } catch (err) {
         console.error("Error loading advisors:", err)
         setError("Failed to load advisors. Please ensure RO Billing data is uploaded.")
       } finally {
+        roFetchInFlight.current.delete(roKey)
         setIsLoading(false)
       }
     }
@@ -623,22 +648,60 @@ const AdvisorOperationsSection = ({ user }: { user: any }) => {
     loadAdvisors()
   }, [user?.email, user?.city])
 
-  // Fetch existing operations data
+  // Fetch existing operations data (summary first)
   useEffect(() => {
     const loadOperationsData = async () => {
       if (!user?.email || !user?.city) return
 
+      const key = `${user.email}-${user.city}-${selectedDate}-${viewMode}`
+      const now = Date.now()
+      const lastTs = operationsLastFetch.current[key] || 0
+      if (now - lastTs < OPERATIONS_COOLDOWN_MS && operationsData.length > 0) {
+        console.log("⏭️ Skipping operations fetch (cooldown)", key)
+        return
+      }
+      if (operationsFetchInFlight.current.has(key)) {
+        console.log("⏭️ Skipping operations fetch (in flight)", key)
+        return
+      }
+
+      operationsFetchInFlight.current.add(key)
+      operationsLastFetch.current[key] = now
+
       try {
-        const response = await fetch(
-          getApiUrl(`/api/service-manager/advisor-operations?uploadedBy=${user.email}&city=${user.city}&dataDate=${selectedDate}&viewMode=${viewMode}`)
+        const summaryResponse = await fetch(
+          getApiUrl(`/api/service-manager/advisor-operations/summary?uploadedBy=${user.email}&city=${user.city}&dataDate=${selectedDate}&viewMode=${viewMode}`)
         )
 
-        if (response.ok) {
-          const result = await response.json()
-          setOperationsData(result.data || [])
+        if (summaryResponse.ok) {
+          const summaryResult = await summaryResponse.json()
+          // Map summary result to existing shape minimally
+          setOperationsData(
+            Array.isArray(summaryResult.data)
+              ? summaryResult.data.map((s: any) => ({
+                  advisorName: s.advisorName,
+                  totalMatchedAmount: s.totalAmount,
+                  totalOperationsCount: s.operations,
+                  lastDate: s.lastDate,
+                  matchedOperations: []
+                }))
+              : []
+          )
+        } else {
+          // fallback to full data if summary fails
+          const response = await fetch(
+            getApiUrl(`/api/service-manager/advisor-operations?uploadedBy=${user.email}&city=${user.city}&dataDate=${selectedDate}&viewMode=${viewMode}`)
+          )
+
+          if (response.ok) {
+            const result = await response.json()
+            setOperationsData(result.data || [])
+          }
         }
       } catch (err) {
         console.error("Error loading operations data:", err)
+      } finally {
+        operationsFetchInFlight.current.delete(key)
       }
     }
 
